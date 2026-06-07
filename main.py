@@ -63,14 +63,28 @@ async def wait_for_database(max_retries: int = 10, delay: float = 3.0) -> None:
 
 
 async def main() -> None:
-    settings = get_settings()
-
+    # Basic logging first so validators can log too
     logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper(), logging.INFO),
+        level=logging.INFO,
         format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
         stream=sys.stdout,
     )
     logger = logging.getLogger(__name__)
+
+    from config.settings import ENV_FILE
+    logger.info(".env expected at: %s (exists=%s)", ENV_FILE, ENV_FILE.exists())
+
+    try:
+        settings = get_settings()
+    except Exception as e:
+        logger.error("Failed to load settings: %s", e)
+        logger.error("Make sure .env exists at %s with a valid BOT_TOKEN", ENV_FILE)
+        sys.exit(1)
+
+    # Reconfigure logging with user's level
+    logging.getLogger().setLevel(
+        getattr(logging, settings.log_level.upper(), logging.INFO)
+    )
 
     logger.info("Starting HelpDesk bot...")
     logger.info("DB: %s:%s/%s", settings.db_host, settings.db_port, settings.db_name)

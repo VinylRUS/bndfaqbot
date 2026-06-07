@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+import logging
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import List
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Project root = where .env lives (1 level up from this file)
 #   config/settings.py  →  project_root/
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ENV_FILE = PROJECT_ROOT / ".env"
+
+# Log .env location so the user can verify it's found
+_logger = logging.getLogger(__name__)
+if ENV_FILE.exists():
+    _logger.info(".env file found: %s", ENV_FILE)
+else:
+    _logger.warning(".env file NOT found at %s — using env vars only", ENV_FILE)
 
 
 class Settings(BaseSettings):
@@ -21,6 +31,23 @@ class Settings(BaseSettings):
 
     # Telegram
     bot_token: str
+
+    @field_validator("bot_token", mode="before")
+    @classmethod
+    def _clean_token(cls, v: str) -> str:
+        """Strip whitespace, quotes and validate Telegram token format."""
+        if not v:
+            raise ValueError(
+                "BOT_TOKEN is empty! Set it in .env or as an environment variable."
+            )
+        v = v.strip().strip('"').strip("'").strip()
+        # Telegram bot token format: <digits>:<35+ alphanumeric chars>
+        if not re.match(r"^\d{1,10}:[A-Za-z0-9_-]{35,}$", v):
+            raise ValueError(
+                f"BOT_TOKEN does not match Telegram format (got: {v[:8]}...). "
+                "Make sure you copied the full token from @BotFather."
+            )
+        return v
 
     # PostgreSQL
     db_host: str = "localhost"
