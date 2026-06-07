@@ -15,7 +15,13 @@ from services.export_service import ExportService
 from services.audit_service import AuditService
 from bot.states.faq_states import FAQManagement
 from bot.states.auto_answer_states import AutoAnswerManagement
-from bot.keyboards.common import get_main_menu_admin, get_cancel_keyboard
+from bot.keyboards.common import (
+    get_main_menu_admin,
+    get_cancel_keyboard,
+    get_admin_management_menu,
+    get_admin_tickets_menu,
+    get_admin_settings_menu,
+)
 from bot.keyboards.admin import (
     get_users_keyboard,
     get_faq_management_keyboard,
@@ -25,6 +31,8 @@ from bot.keyboards.admin import (
     get_auto_answer_list_keyboard,
     get_auto_answer_detail_keyboard,
     get_role_change_keyboard,
+    get_db_cleanup_keyboard,
+    get_db_cleanup_confirm_keyboard,
 )
 from bot.states.category_management_states import CategoryManagement
 from database.repositories.category_repo import CategoryRepository
@@ -64,6 +72,105 @@ async def _check_admin_and_reply(event, **kwargs) -> bool:
     else:
         await event.answer("Недостаточно прав для выполнения действия.")
     return False
+
+
+# ── Подменю админа ─────────────────────────────────────────────────
+
+@router.message(F.text == "🛠 Управление")
+async def admin_management_menu(message: Message, **kwargs) -> None:
+    if not _is_admin(**kwargs):
+        await message.answer("Недостаточно прав.")
+        return
+    await message.answer("🛠 <b>Управление</b>", parse_mode="HTML",
+                         reply_markup=get_admin_management_menu())
+
+
+@router.message(F.text == "📋 Обращения")
+async def admin_tickets_menu(message: Message, **kwargs) -> None:
+    if not _is_admin(**kwargs):
+        await message.answer("Недостаточно прав.")
+        return
+    await message.answer("📋 <b>Обращения</b>", parse_mode="HTML",
+                         reply_markup=get_admin_tickets_menu())
+
+
+@router.message(F.text == "⚙ Настройки")
+async def admin_settings_menu(message: Message, **kwargs) -> None:
+    if not _is_admin(**kwargs):
+        await message.answer("Недостаточно прав.")
+        return
+    await message.answer("⚙ <b>Настройки</b>", parse_mode="HTML",
+                         reply_markup=get_admin_settings_menu())
+
+
+@router.message(F.text == "🔙 В меню")
+async def admin_back_to_menu(message: Message, state: FSMContext, **kwargs) -> None:
+    await state.clear()
+    user_role: RoleEnum | None = kwargs.get("user_role")
+    if user_role == RoleEnum.ADMIN:
+        await message.answer("👑 Главное меню", reply_markup=get_main_menu_admin())
+    else:
+        from bot.keyboards.common import get_main_menu_by_role
+        await message.answer("Главное меню", reply_markup=get_main_menu_by_role(user_role))
+
+
+@router.message(F.text == "🔧 Настройки бота")
+async def admin_bot_settings(message: Message, **kwargs) -> None:
+    if not _is_admin(**kwargs):
+        await message.answer("Недостаточно прав.")
+        return
+    session: AsyncSession = kwargs["db_session"]
+    audit_service = AuditService(session)
+    await audit_service.log(
+        user_id=message.from_user.id, role="admin",
+        action="enter_settings", object_type="system",
+    )
+    await message.answer(
+        "🔧 <b>Настройки бота</b>\n\n"
+        "Для настройки Google Sheets перейдите в 🕐 Табель → ⚙ Google настройки.",
+        parse_mode="HTML",
+    )
+
+
+@router.message(F.text == "🧹 Очистка данных")
+async def admin_cleanup_menu(message: Message, **kwargs) -> None:
+    if not _is_admin(**kwargs):
+        await message.answer("Недостаточно прав.")
+        return
+    session: AsyncSession = kwargs["db_session"]
+
+    from sqlalchemy import text as sa_text
+    from bot.keyboards.admin import get_db_cleanup_keyboard
+
+    _MODEL_TO_TABLE = {
+        "tickets": "tickets", "ticket_messages": "ticket_messages",
+        "ratings": "ratings", "timesheet_periods": "timesheet_periods",
+        "timesheet_entries": "timesheet_entries", "faqs": "faqs",
+        "auto_answers": "auto_answers", "quick_replies": "quick_replies",
+        "audit_logs": "audit_logs", "bot_settings": "bot_settings",
+    }
+    counts = {}
+    for model_name, table_name in _MODEL_TO_TABLE.items():
+        try:
+            result = await session.execute(sa_text(f"SELECT COUNT(*) FROM {table_name}"))
+            counts[model_name] = result.scalar_one()
+        except Exception:
+            counts[model_name] = "?"
+
+    await message.answer(
+        "🧹 <b>Очистка данных</b>\n\n"
+        "Выберите, что очистить. Пользователи и категории не удаляются.\n\n"
+        f"• Тикеты + сообщения: {counts.get('tickets', '?')} / {counts.get('ticket_messages', '?')}\n"
+        f"• Оценки: {counts.get('ratings', '?')}\n"
+        f"• Табели: {counts.get('timesheet_periods', '?')} / {counts.get('timesheet_entries', '?')}\n"
+        f"• FAQ: {counts.get('faqs', '?')}\n"
+        f"• Автоответы: {counts.get('auto_answers', '?')}\n"
+        f"• Быстрые ответы: {counts.get('quick_replies', '?')}\n"
+        f"• Аудит: {counts.get('audit_logs', '?')}\n"
+        f"• Настройки бота: {counts.get('bot_settings', '?')}",
+        parse_mode="HTML",
+        reply_markup=get_db_cleanup_keyboard(),
+    )
 
 
 # ── Пользователи ───────────────────────────────────────────────────
@@ -722,36 +829,6 @@ async def export_data(message: Message, **kwargs) -> None:
         os.unlink(tmp_path)
 
 
-# ── Настройки ──────────────────────────────────────────────────────
-
-@router.message(F.text == "⚙ Настройки")
-async def show_settings(message: Message, **kwargs) -> None:
-    if not _is_admin(**kwargs):
-        await message.answer("Недостаточно прав для выполнения действия.")
-        return
-
-    session: AsyncSession = kwargs["db_session"]
-    audit_service = AuditService(session)
-    await audit_service.log(
-        user_id=message.from_user.id,
-        role="admin",
-        action="enter_settings",
-        object_type="system",
-    )
-
-    text = (
-        "⚙ <b>Настройки</b>\n\n"
-        "Для управления настройками используйте разделы выше.\n\n"
-        "Доступные действия:\n"
-        "• 👥 Управление пользователями и ролями\n"
-        "• 📚 Управление FAQ\n"
-        "• 🤖 Управление автоответами\n"
-        "• 📊 Просмотр статистики\n"
-        "• 📤 Выгрузка данных"
-    )
-    await message.answer(text, parse_mode="HTML")
-
-
 # ── Управление категориями ────────────────────────────────────────
 
 @router.message(F.text == "📁 Категории")
@@ -921,3 +998,159 @@ async def set_hours_collector(callback: CallbackQuery, **kwargs) -> None:
     status = "включен" if user.collects_hours else "отключен"
     await callback.message.edit_text(f"Сбор часов для {user.display_name}: {status}")
     await callback.answer(f"Сбор часов {status}!")
+
+
+# ════════════════════════════════════════════════════════════════════
+#  ОЧИСТКА БАЗЫ ДАННЫХ
+# ════════════════════════════════════════════════════════════════════
+
+_CLEANUP_TABLES = {
+    "tickets": {
+        "label": "🎫 Тикеты + сообщения",
+        "models": ["ticket_messages", "tickets", "ratings"],
+    },
+    "timesheets": {
+        "label": "🕐 Табели (периоды + записи)",
+        "models": ["timesheet_entries", "timesheet_periods"],
+    },
+    "faq": {
+        "label": "📚 FAQ",
+        "models": ["faqs"],
+    },
+    "auto_answers": {
+        "label": "🤖 Автоответы",
+        "models": ["auto_answers"],
+    },
+    "quick_replies": {
+        "label": "⚡ Быстрые ответы",
+        "models": ["quick_replies"],
+    },
+    "audit": {
+        "label": "📝 Аудит лог",
+        "models": ["audit_logs"],
+    },
+    "bot_settings": {
+        "label": "⚙ Настройки бота (Google и пр.)",
+        "models": ["bot_settings"],
+    },
+    "all": {
+        "label": "💥 Очистить ВСЁ (кроме пользователей и категорий)",
+        "models": [
+            "ticket_messages", "tickets", "ratings",
+            "timesheet_entries", "timesheet_periods",
+            "faqs", "auto_answers", "quick_replies",
+            "audit_logs", "bot_settings",
+        ],
+    },
+}
+
+# Mapping model name → actual table name in DB
+_MODEL_TO_TABLE = {
+    "ticket_messages": "ticket_messages",
+    "tickets": "tickets",
+    "ratings": "ratings",
+    "timesheet_entries": "timesheet_entries",
+    "timesheet_periods": "timesheet_periods",
+    "faqs": "faqs",
+    "auto_answers": "auto_answers",
+    "quick_replies": "quick_replies",
+    "audit_logs": "audit_logs",
+    "bot_settings": "bot_settings",
+}
+
+
+@router.callback_query(F.data == "db_cleanup")
+async def db_cleanup_menu(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
+        return
+    session: AsyncSession = kwargs["db_session"]
+
+    # Count rows in each table for display
+    from sqlalchemy import text as sa_text
+    counts = {}
+    for model_name, table_name in _MODEL_TO_TABLE.items():
+        try:
+            result = await session.execute(sa_text(f"SELECT COUNT(*) FROM {table_name}"))
+            counts[model_name] = result.scalar_one()
+        except Exception:
+            counts[model_name] = "?"
+
+    await callback.message.edit_text(
+        "🧹 <b>Очистка данных</b>\n\n"
+        "Выберите, что очистить. Пользователи и категории не удаляются.\n\n"
+        f"• Тикеты + сообщения: {counts.get('tickets', '?')} / {counts.get('ticket_messages', '?')}\n"
+        f"• Оценки: {counts.get('ratings', '?')}\n"
+        f"• Табели: {counts.get('timesheet_periods', '?')} / {counts.get('timesheet_entries', '?')}\n"
+        f"• FAQ: {counts.get('faqs', '?')}\n"
+        f"• Автоответы: {counts.get('auto_answers', '?')}\n"
+        f"• Быстрые ответы: {counts.get('quick_replies', '?')}\n"
+        f"• Аудит: {counts.get('audit_logs', '?')}\n"
+        f"• Настройки бота: {counts.get('bot_settings', '?')}",
+        parse_mode="HTML",
+        reply_markup=get_db_cleanup_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("db_clean_"))
+async def db_cleanup_confirm(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
+        return
+    section = callback.data.removeprefix("db_clean_")
+    if section not in _CLEANUP_TABLES:
+        await callback.answer("Неизвестное действие.")
+        return
+
+    info = _CLEANUP_TABLES[section]
+    await callback.message.edit_text(
+        f"⚠ <b>Подтвердите удаление</b>\n\n"
+        f"Будут удалены: {info['label']}\n\n"
+        f"Это действие <b>невозможно</b> отменить!",
+        parse_mode="HTML",
+        reply_markup=get_db_cleanup_confirm_keyboard(section),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("db_confirm_clean_"))
+async def db_cleanup_execute(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
+        return
+    section = callback.data.removeprefix("db_confirm_clean_")
+    if section not in _CLEANUP_TABLES:
+        await callback.answer("Неизвестное действие.")
+        return
+
+    info = _CLEANUP_TABLES[section]
+    session: AsyncSession = kwargs["db_session"]
+
+    from sqlalchemy import text as sa_text
+    deleted_tables = []
+    for model_name in info["models"]:
+        table_name = _MODEL_TO_TABLE.get(model_name, model_name)
+        try:
+            # Delete in correct order — child tables first
+            result = await session.execute(sa_text(f"DELETE FROM {table_name}"))
+            deleted_tables.append(f"• {table_name}: {result.rowcount} строк")
+        except Exception as e:
+            deleted_tables.append(f"• {table_name}: ошибка — {e}")
+
+    await session.commit()
+
+    # Log the cleanup
+    audit_service = AuditService(session)
+    await audit_service.log(
+        user_id=callback.from_user.id,
+        role="admin",
+        action=f"db_cleanup_{section}",
+        object_type="system",
+    )
+    await session.commit()
+
+    result_text = "\n".join(deleted_tables)
+    await callback.message.edit_text(
+        f"✅ <b>Очистка выполнена</b>\n\n{result_text}",
+        parse_mode="HTML",
+        reply_markup=get_db_cleanup_keyboard(),
+    )
+    await callback.answer()

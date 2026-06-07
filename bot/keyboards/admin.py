@@ -140,3 +140,26 @@ def _truncate(text: str, max_len: int) -> str:
     if len(text) <= max_len:
         return text
     return text[: max_len - 3] + "..."
+
+
+def get_db_cleanup_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="🎫 Тикеты + сообщения", callback_data="db_clean_tickets")],
+        [InlineKeyboardButton(text="🕐 Табели", callback_data="db_clean_timesheets")],
+        [InlineKeyboardButton(text="📚 FAQ", callback_data="db_clean_faq")],
+        [InlineKeyboardButton(text="🤖 Автоответы", callback_data="db_clean_auto_answers")],
+        [InlineKeyboardButton(text="⚡ Быстрые ответы", callback_data="db_clean_quick_replies")],
+        [InlineKeyboardButton(text="📝 Аудит лог", callback_data="db_clean_audit")],
+        [InlineKeyboardButton(text="⚙ Настройки бота", callback_data="db_clean_bot_settings")],
+        [InlineKeyboardButton(text="💥 Очистить ВСЁ", callback_data="db_clean_all")],
+        [InlineKeyboardButton(text="🔙 В меню", callback_data="back_to_menu")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_db_cleanup_confirm_keyboard(section: str) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="✅ Да, удалить!", callback_data=f"db_confirm_clean_{section}")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="db_cleanup")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

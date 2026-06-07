@@ -13,7 +13,7 @@ from services.quick_reply_service import QuickReplyService
 from services.audit_service import AuditService
 from bot.states.ticket_states import OperatorReply
 from bot.states.quick_reply_states import QuickReplyManagement
-from bot.keyboards.common import get_main_menu_operator, get_cancel_keyboard
+from bot.keyboards.common import get_main_menu_operator, get_main_menu_by_role, get_cancel_keyboard
 from bot.keyboards.operator import (
     get_new_tickets_keyboard,
     get_operator_active_keyboard,
@@ -231,7 +231,7 @@ async def use_quick_reply(callback: CallbackQuery, state: FSMContext, **kwargs) 
             pass
 
     await callback.message.edit_text("✅ Быстрый ответ отправлен.")
-    await callback.message.answer("Ответ отправлен пользователю.", reply_markup=get_main_menu_operator())
+    await callback.message.answer("Ответ отправлен пользователю.", reply_markup=get_main_menu_by_role(kwargs.get("user_role")))
     await callback.message.answer(
         f"Тикет #{ticket_id}",
         reply_markup=get_ticket_actions_keyboard(ticket_id=ticket_id, can_reply=True, can_close=True, can_quick_reply=True),
@@ -248,10 +248,10 @@ async def cancel_reply(message: Message, state: FSMContext, **kwargs) -> None:
     ticket_service = TicketService(session)
     tickets = await ticket_service.get_operator_active(message.from_user.id)
     if tickets:
-        await message.answer("Ответ отменён. Ваши тикеты в работе:", reply_markup=get_main_menu_operator())
+        await message.answer("Ответ отменён. Ваши тикеты в работе:", reply_markup=get_main_menu_by_role(kwargs.get("user_role")))
         await message.answer("🛠 Тикеты в работе:", reply_markup=get_operator_active_keyboard(tickets))
     else:
-        await message.answer("Ответ отменён.", reply_markup=get_main_menu_operator())
+        await message.answer("Ответ отменён.", reply_markup=get_main_menu_by_role(kwargs.get("user_role")))
 
 
 # ── Отправка ответа (текст) ───────────────────────────────────────
@@ -276,7 +276,7 @@ async def send_reply(message: Message, state: FSMContext, **kwargs) -> None:
             await bot.send_message(ticket.author_id, f"📩 Ответ на обращение #{ticket.number}:\n\n{message.text.strip()}")
         except Exception:
             pass
-    await message.answer("✅ Ответ отправлен пользователю.", reply_markup=get_main_menu_operator())
+    await message.answer("✅ Ответ отправлен пользователю.", reply_markup=get_main_menu_by_role(kwargs.get("user_role")))
     # Prompt to save as quick reply
     await message.answer(
         "Сохранить как быстрый ответ?",
@@ -328,7 +328,7 @@ async def send_reply_attachment(message: Message, state: FSMContext, **kwargs) -
         except Exception:
             pass
 
-    await message.answer("✅ Ответ с вложением отправлен пользователю.", reply_markup=get_main_menu_operator())
+    await message.answer("✅ Ответ с вложением отправлен пользователю.", reply_markup=get_main_menu_by_role(kwargs.get("user_role")))
     await message.answer(
         f"Тикет #{ticket_id}",
         reply_markup=get_ticket_actions_keyboard(ticket_id=ticket_id, can_reply=True, can_close=True, can_quick_reply=True),
@@ -373,7 +373,7 @@ async def quick_reply_enter_text(message: Message, state: FSMContext, **kwargs) 
     quick_service = QuickReplyService(session)
     await quick_service.create(user_id=message.from_user.id, name=name, text=text)
     await state.clear()
-    await message.answer("✅ Быстрый ответ сохранён!", reply_markup=get_main_menu_operator())
+    await message.answer("✅ Быстрый ответ сохранён!", reply_markup=get_main_menu_by_role(kwargs.get("user_role")))
 
 
 # ── Управление быстрыми ответами (из меню) ─────────────────────────
@@ -450,7 +450,7 @@ async def close_ticket(callback: CallbackQuery, **kwargs) -> None:
 @router.callback_query(F.data == "back_to_op_menu")
 async def back_to_op_menu(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     await state.clear()
-    await callback.message.answer("Главное меню 🛠", reply_markup=get_main_menu_operator())
+    await callback.message.answer("Главное меню", reply_markup=get_main_menu_by_role(kwargs.get("user_role")))
     await callback.answer()
 
 

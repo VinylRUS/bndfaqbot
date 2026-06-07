@@ -27,7 +27,7 @@ class RatingRepository:
     async def has_rated(self, ticket_id: int) -> bool:
         """Check existence with EXISTS — no object loading."""
         result = await self.session.execute(
-            select(func.exists().where(Rating.ticket_id == ticket_id))
+            select(exists().where(Rating.ticket_id == ticket_id))
         )
         return result.scalar_one()
 

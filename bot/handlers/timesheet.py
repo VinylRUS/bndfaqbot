@@ -14,7 +14,7 @@ from database.models.user import User
 from services.timesheet_service import TimesheetService
 from services.user_service import UserService
 from bot.states.timesheet_states import TimesheetStates
-from bot.keyboards.common import get_main_menu_admin, get_main_menu_operator, get_cancel_keyboard
+from bot.keyboards.common import get_main_menu_admin, get_main_menu_operator, get_main_menu_by_role, get_cancel_keyboard
 from bot.keyboards.timesheet import (
     get_timesheet_admin_keyboard,
     get_employee_type_keyboard,
@@ -123,8 +123,7 @@ async def ts_user_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> 
 async def ts_cancel_entry(message: Message, state: FSMContext, **kwargs) -> None:
     await state.clear()
     user_role: RoleEnum = kwargs.get("user_role", RoleEnum.USER)
-    menu = _get_main_menu_by_role(user_role)
-    await message.answer("Отменено.", reply_markup=menu())
+    await message.answer("Отменено.", reply_markup=get_main_menu_by_role(user_role))
 
 
 @router.message(TimesheetStates.entering_hours)
@@ -144,12 +143,11 @@ async def ts_submit_hours(message: Message, state: FSMContext, **kwargs) -> None
 
     await state.clear()
     user_role: RoleEnum = kwargs.get("user_role", RoleEnum.USER)
-    menu = _get_main_menu_by_role(user_role)
 
     if result["success"]:
         await message.answer(
             f"✅ Часы приняты!\nЗаписей: {result['entries_count']}\nВсего часов: {result['total_hours']}",
-            reply_markup=menu(),
+            reply_markup=get_main_menu_by_role(user_role),
         )
         # Check if all users submitted → notify operator
         await _notify_if_period_complete(period_id, kwargs)
@@ -593,16 +591,6 @@ async def _notify_if_period_complete(period_id: int, kwargs: dict) -> None:
             )
         except Exception:
             pass
-
-
-def _get_main_menu_by_role(role: RoleEnum):
-    from bot.keyboards.common import get_main_menu_admin, get_main_menu_operator, get_main_menu_user
-    if role == RoleEnum.ADMIN:
-        return get_main_menu_admin
-    elif role == RoleEnum.OPERATOR:
-        return get_main_menu_operator
-    else:
-        return get_main_menu_user
 
 
 # Import for inline keyboard in ts_google_settings

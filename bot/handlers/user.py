@@ -18,7 +18,8 @@ from services.audit_service import AuditService
 from database.repositories.category_repo import CategoryRepository
 from bot.states.ticket_states import TicketCreation, UserReply
 from bot.keyboards.common import (
-    get_main_menu_user, get_main_menu_operator, get_main_menu_admin, get_cancel_keyboard,
+    get_main_menu_user, get_main_menu_operator, get_main_menu_admin,
+    get_main_menu_by_role, get_cancel_keyboard,
 )
 from bot.keyboards.user import (
     get_category_keyboard, get_topic_keyboard, get_user_tickets_keyboard,
@@ -91,8 +92,7 @@ async def back_to_categories(callback: CallbackQuery, state: FSMContext, **kwarg
 async def cancel_ticket_creation(message: Message, state: FSMContext, **kwargs) -> None:
     await state.clear()
     user_role: RoleEnum = kwargs.get("user_role", RoleEnum.USER)
-    menu = _get_main_menu_by_role(user_role)
-    await message.answer("Создание обращения отменено.", reply_markup=menu())
+    await message.answer("Создание обращения отменено.", reply_markup=get_main_menu_by_role(user_role))
 
 
 @router.message(TicketCreation.entering_text)
@@ -109,10 +109,9 @@ async def enter_ticket_text(message: Message, state: FSMContext, **kwargs) -> No
     )
     await state.clear()
     user_role: RoleEnum = kwargs.get("user_role", RoleEnum.USER)
-    menu = _get_main_menu_by_role(user_role)
     await message.answer(
         f"Ваше обращение #{ticket.number} создано!\nСтатус: 🆕 Новое\n\nОператор ответит вам в ближайшее время.",
-        reply_markup=menu(),
+        reply_markup=get_main_menu_by_role(user_role),
     )
     # Notify operators and admins
     bot: Bot = kwargs["bot"]
@@ -234,8 +233,7 @@ async def user_reply_to_ticket(callback: CallbackQuery, state: FSMContext, **kwa
 async def cancel_user_reply(message: Message, state: FSMContext, **kwargs) -> None:
     await state.clear()
     user_role: RoleEnum = kwargs.get("user_role", RoleEnum.USER)
-    menu = _get_main_menu_by_role(user_role)
-    await message.answer("Ответ отменён.", reply_markup=menu())
+    await message.answer("Ответ отменён.", reply_markup=get_main_menu_by_role(user_role))
 
 
 @router.message(UserReply.writing_reply, F.text)
@@ -269,8 +267,7 @@ async def send_user_reply(message: Message, state: FSMContext, **kwargs) -> None
         except Exception:
             pass
     user_role: RoleEnum = kwargs.get("user_role", RoleEnum.USER)
-    menu = _get_main_menu_by_role(user_role)
-    await message.answer("Сообщение отправлено оператору.", reply_markup=menu())
+    await message.answer("Сообщение отправлено оператору.", reply_markup=get_main_menu_by_role(user_role))
 
 
 @router.message(UserReply.writing_reply, F.photo | F.document)
@@ -306,8 +303,7 @@ async def send_user_reply_attachment(message: Message, state: FSMContext, **kwar
             except Exception:
                 pass
     user_role: RoleEnum = kwargs.get("user_role", RoleEnum.USER)
-    menu = _get_main_menu_by_role(user_role)
-    await message.answer("Сообщение с вложением отправлено оператору.", reply_markup=menu())
+    await message.answer("Сообщение с вложением отправлено оператору.", reply_markup=get_main_menu_by_role(user_role))
 
 
 # ── К списку обращений ─────────────────────────────────────────────
@@ -387,10 +383,9 @@ async def handle_free_text(message: Message, state: FSMContext, **kwargs) -> Non
 async def back_to_menu(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     await state.clear()
     user_role: RoleEnum = kwargs.get("user_role", RoleEnum.USER)
-    menu = _get_main_menu_by_role(user_role)
     role_labels = {RoleEnum.ADMIN: "Главное меню 👑", RoleEnum.OPERATOR: "Главное меню 🛠", RoleEnum.USER: "Главное меню 👤"}
     label = role_labels.get(user_role, "Главное меню 👤")
-    await callback.message.answer(label, reply_markup=menu())
+    await callback.message.answer(label, reply_markup=get_main_menu_by_role(user_role))
     await callback.answer()
 
 
@@ -414,12 +409,3 @@ def _format_ticket_detail(ticket) -> str:
         text += f"Оценка: {'⭐' * ticket.rating.score}\n"
     text += f"\n<b>Обращение:</b>\n{ticket.text}"
     return text
-
-
-def _get_main_menu_by_role(role: RoleEnum):
-    if role == RoleEnum.ADMIN:
-        return get_main_menu_admin
-    elif role == RoleEnum.OPERATOR:
-        return get_main_menu_operator
-    else:
-        return get_main_menu_user

@@ -7,6 +7,12 @@ from aiogram.types import (
     InlineKeyboardButton,
 )
 
+from database.models.role import RoleEnum
+
+
+# ════════════════════════════════════════════════════════════════════
+#  ГЛАВНЫЕ МЕНЮ (по ролям)
+# ════════════════════════════════════════════════════════════════════
 
 def get_main_menu_user() -> ReplyKeyboardMarkup:
     keyboard = [
@@ -18,7 +24,6 @@ def get_main_menu_user() -> ReplyKeyboardMarkup:
 
 
 def get_main_menu_operator() -> ReplyKeyboardMarkup:
-    """Operator sees their ticket buttons + user buttons + quick replies."""
     keyboard = [
         [KeyboardButton(text="📥 Новые тикеты")],
         [KeyboardButton(text="🛠 В работе"), KeyboardButton(text="📜 История")],
@@ -31,19 +36,54 @@ def get_main_menu_operator() -> ReplyKeyboardMarkup:
 
 
 def get_main_menu_admin() -> ReplyKeyboardMarkup:
-    """Admin sees admin tools + operator buttons + user buttons."""
+    """Admin main menu — 3 category buttons + user actions."""
     keyboard = [
-        [KeyboardButton(text="👥 Пользователи"), KeyboardButton(text="📚 Управление FAQ")],
-        [KeyboardButton(text="🤖 Автоответы"), KeyboardButton(text="📊 Статистика")],
-        [KeyboardButton(text="📥 Новые тикеты"), KeyboardButton(text="🛠 В работе")],
-        [KeyboardButton(text="📜 История"), KeyboardButton(text="📤 Выгрузка")],
-        [KeyboardButton(text="🕐 Табель"), KeyboardButton(text="📁 Категории")],
-        [KeyboardButton(text="⚡ Быстрые ответы")],
-        [KeyboardButton(text="❓ Создать обращение"), KeyboardButton(text="⚙ Настройки")],
+        [KeyboardButton(text="🛠 Управление"), KeyboardButton(text="📋 Обращения")],
+        [KeyboardButton(text="⚙ Настройки")],
+        [KeyboardButton(text="❓ Создать обращение")],
         [KeyboardButton(text="📚 FAQ"), KeyboardButton(text="📋 Мои обращения")],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
+
+# ════════════════════════════════════════════════════════════════════
+#  ПОДМЕНЮ АДМИНА
+# ════════════════════════════════════════════════════════════════════
+
+def get_admin_management_menu() -> ReplyKeyboardMarkup:
+    """🛠 Управление — пользователи, категории, FAQ, автоответы."""
+    keyboard = [
+        [KeyboardButton(text="👥 Пользователи"), KeyboardButton(text="📁 Категории")],
+        [KeyboardButton(text="📚 Управление FAQ"), KeyboardButton(text="🤖 Автоответы")],
+        [KeyboardButton(text="🔙 В меню")],
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def get_admin_tickets_menu() -> ReplyKeyboardMarkup:
+    """📋 Обращения — работа с тикетами + выгрузка."""
+    keyboard = [
+        [KeyboardButton(text="📥 Новые тикеты"), KeyboardButton(text="🛠 В работе")],
+        [KeyboardButton(text="📜 История"), KeyboardButton(text="📤 Выгрузка")],
+        [KeyboardButton(text="🔙 В меню")],
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def get_admin_settings_menu() -> ReplyKeyboardMarkup:
+    """⚙ Настройки — табель, быстрые ответы, статистика, очистка."""
+    keyboard = [
+        [KeyboardButton(text="🕐 Табель"), KeyboardButton(text="⚡ Быстрые ответы")],
+        [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="🔧 Настройки бота")],
+        [KeyboardButton(text="🧹 Очистка данных")],
+        [KeyboardButton(text="🔙 В меню")],
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+# ════════════════════════════════════════════════════════════════════
+#  УТИЛИТЫ
+# ════════════════════════════════════════════════════════════════════
 
 def get_back_keyboard(callback_data: str = "back_to_menu") -> InlineKeyboardMarkup:
     keyboard = [
@@ -64,3 +104,12 @@ def get_request_contact_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="📱 Отправить номер телефона", request_contact=True)]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def get_main_menu_by_role(role: RoleEnum | str | None) -> ReplyKeyboardMarkup:
+    """Return the correct main-menu keyboard for the given role."""
+    if role == RoleEnum.ADMIN or role == "admin":
+        return get_main_menu_admin()
+    if role == RoleEnum.OPERATOR or role == "operator":
+        return get_main_menu_operator()
+    return get_main_menu_user()
