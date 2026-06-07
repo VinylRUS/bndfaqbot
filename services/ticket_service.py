@@ -20,14 +20,10 @@ class TicketService:
 
     async def create_ticket(self, author_id: int, category_id: int, text: str) -> Ticket:
         ticket = await self.ticket_repo.create(
-            author_id=author_id,
-            category_id=category_id,
-            text=text,
+            author_id=author_id, category_id=category_id, text=text,
         )
         await self.message_repo.create(
-            ticket_id=ticket.id,
-            sender_id=author_id,
-            text=text,
+            ticket_id=ticket.id, sender_id=author_id, text=text,
         )
         return ticket
 
@@ -35,7 +31,6 @@ class TicketService:
         return await self.ticket_repo.get_by_id_full(ticket_id)
 
     async def get_by_id_lightweight(self, ticket_id: int) -> Optional[Ticket]:
-        """For simple status checks — no eager loading."""
         return await self.ticket_repo.get_by_id(ticket_id)
 
     async def get_by_number(self, number: int) -> Optional[Ticket]:
@@ -62,37 +57,42 @@ class TicketService:
         ticket = await self.ticket_repo.assign_operator(ticket_id, operator_id)
         if ticket:
             await self.audit_repo.create(
-                user_id=operator_id,
-                role="operator",
-                action="assign_ticket",
-                object_type="ticket",
-                object_id=ticket_id,
+                user_id=operator_id, role="operator", action="assign_ticket",
+                object_type="ticket", object_id=ticket_id,
                 details=f"Ticket #{ticket.number} assigned to operator",
             )
         return ticket
 
-    async def add_message(self, ticket_id: int, sender_id: int, text: str) -> Optional[dict]:
+    async def add_message(
+        self,
+        ticket_id: int,
+        sender_id: int,
+        text: str,
+        file_id: Optional[str] = None,
+        file_type: Optional[str] = None,
+    ) -> Optional[dict]:
         ticket = await self.ticket_repo.get_by_id(ticket_id)
         if not ticket:
             return None
         message = await self.message_repo.create(
-            ticket_id=ticket_id,
-            sender_id=sender_id,
-            text=text,
+            ticket_id=ticket_id, sender_id=sender_id, text=text,
+            file_id=file_id, file_type=file_type,
         )
-        if ticket.status == TicketStatus.IN_PROGRESS:
+        # Status transitions:
+        # Operator replies: IN_PROGRESS → ANSWERED
+        # User replies: ANSWERED → IN_PROGRESS
+        if sender_id == ticket.operator_id and ticket.status == TicketStatus.IN_PROGRESS:
             await self.ticket_repo.update_status(ticket_id, TicketStatus.ANSWERED)
+        elif sender_id == ticket.author_id and ticket.status == TicketStatus.ANSWERED:
+            await self.ticket_repo.update_status(ticket_id, TicketStatus.IN_PROGRESS)
         return {"message": message, "ticket": ticket}
 
     async def close_ticket(self, ticket_id: int, operator_id: int) -> Optional[Ticket]:
         ticket = await self.ticket_repo.update_status(ticket_id, TicketStatus.CLOSED)
         if ticket:
             await self.audit_repo.create(
-                user_id=operator_id,
-                role="operator",
-                action="close_ticket",
-                object_type="ticket",
-                object_id=ticket_id,
+                user_id=operator_id, role="operator", action="close_ticket",
+                object_type="ticket", object_id=ticket_id,
                 details=f"Ticket #{ticket.number} closed",
             )
         return ticket

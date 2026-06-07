@@ -59,3 +59,26 @@ class CategoryRepository:
             await self.create(name=topic, parent_id=vacation.id)
 
         await self.create(name="Прочее", emoji="📦")
+
+    async def update_name(self, category_id: int, name: str) -> Optional[Category]:
+        cat = await self.get_by_id(category_id)
+        if cat:
+            cat.name = name
+            await self.session.flush()
+        return cat
+
+    async def delete(self, category_id: int) -> bool:
+        cat = await self.get_by_id(category_id)
+        if not cat:
+            return False
+        # Check if there are tickets referencing this category
+        from sqlalchemy import func, select as sa_select
+        from database.models.ticket import Ticket
+        result = await self.session.execute(
+            sa_select(func.count(Ticket.id)).where(Ticket.category_id == category_id)
+        )
+        if result.scalar_one() > 0:
+            return False
+        await self.session.delete(cat)
+        await self.session.flush()
+        return True

@@ -63,6 +63,18 @@ def get_faq_keyboard(faqs: list) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def get_user_ticket_detail_keyboard(ticket_id: int, can_reply: bool = False) -> InlineKeyboardMarkup:
+    buttons = []
+    if can_reply:
+        buttons.append(
+            [InlineKeyboardButton(text="💬 Ответить", callback_data=f"user_reply_{ticket_id}")]
+        )
+    buttons.append(
+        [InlineKeyboardButton(text="🔙 К моим обращениям", callback_data="back_to_my_tickets")]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 def get_auto_answer_reply_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="❓ Создать обращение", callback_data="auto_create_ticket")],

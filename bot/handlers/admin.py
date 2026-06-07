@@ -26,6 +26,8 @@ from bot.keyboards.admin import (
     get_auto_answer_detail_keyboard,
     get_role_change_keyboard,
 )
+from bot.states.category_management_states import CategoryManagement
+from database.repositories.category_repo import CategoryRepository
 from utils.permissions import is_admin
 import tempfile
 import os
@@ -748,3 +750,174 @@ async def show_settings(message: Message, **kwargs) -> None:
         "• 📤 Выгрузка данных"
     )
     await message.answer(text, parse_mode="HTML")
+
+
+# ── Управление категориями ────────────────────────────────────────
+
+@router.message(F.text == "📁 Категории")
+async def show_categories_menu(message: Message, **kwargs) -> None:
+    if not _is_admin(**kwargs):
+        await message.answer("Недостаточно прав.")
+        return
+    session: AsyncSession = kwargs["db_session"]
+    cat_repo = CategoryRepository(session)
+    categories = await cat_repo.get_roots()
+    if not categories:
+        await message.answer("Категории не созданы. Добавьте первую.")
+        return
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    buttons = []
+    for cat in categories:
+        buttons.append([InlineKeyboardButton(text=cat.full_name, callback_data=f"cat_manage_{cat.id}")])
+    buttons.append([InlineKeyboardButton(text="➕ Добавить категорию", callback_data="cat_add_root")])
+    buttons.append([InlineKeyboardButton(text="🔙 В меню", callback_data="back_to_menu")])
+    await message.answer("📁 Управление категориями:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+
+
+@router.callback_query(F.data.startswith("cat_manage_"))
+async def manage_category(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
+        return
+    cat_id = int(callback.data.split("_")[-1])
+    session: AsyncSession = kwargs["db_session"]
+    cat_repo = CategoryRepository(session)
+    cat = await cat_repo.get_by_id(cat_id)
+    if not cat:
+        await callback.answer("Категория не найдена.")
+        return
+    topics = await cat_repo.get_topics(cat_id)
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    buttons = []
+    for topic in topics:
+        buttons.append([InlineKeyboardButton(text=topic.full_name, callback_data=f"cat_manage_{topic.id}")])
+    buttons.append([InlineKeyboardButton(text="➕ Добавить тему", callback_data=f"cat_add_topic_{cat_id}")])
+    buttons.append([InlineKeyboardButton(text="✏ Переименовать", callback_data=f"cat_rename_{cat_id}")])
+    buttons.append([InlineKeyboardButton(text="🗑 Удалить", callback_data=f"cat_delete_{cat_id}")])
+    buttons.append([InlineKeyboardButton(text="🔙 К списку", callback_data="cat_list")])
+    await callback.message.edit_text(
+        f"📁 {cat.full_name}\n\nТем: {len(topics)}",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cat_list")
+async def cat_list(callback: CallbackQuery, **kwargs) -> None:
+    session: AsyncSession = kwargs["db_session"]
+    cat_repo = CategoryRepository(session)
+    categories = await cat_repo.get_roots()
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    buttons = []
+    for cat in categories:
+        buttons.append([InlineKeyboardButton(text=cat.full_name, callback_data=f"cat_manage_{cat.id}")])
+    buttons.append([InlineKeyboardButton(text="➕ Добавить категорию", callback_data="cat_add_root")])
+    buttons.append([InlineKeyboardButton(text="🔙 В меню", callback_data="back_to_menu")])
+    await callback.message.edit_text("📁 Управление категориями:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cat_add_root")
+async def cat_add_root(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
+        return
+    await state.set_state(CategoryManagement.waiting_category_name)
+    await state.update_data(parent_id=None)
+    await callback.message.answer("Введите название новой категории:", reply_markup=get_cancel_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("cat_add_topic_"))
+async def cat_add_topic(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
+        return
+    parent_id = int(callback.data.split("_")[-1])
+    await state.set_state(CategoryManagement.waiting_category_name)
+    await state.update_data(parent_id=parent_id)
+    await callback.message.answer("Введите название новой темы:", reply_markup=get_cancel_keyboard())
+    await callback.answer()
+
+
+@router.message(CategoryManagement.waiting_category_name, F.text == "❌ Отмена")
+async def cancel_cat_add(message: Message, state: FSMContext, **kwargs) -> None:
+    await state.clear()
+    await message.answer("Отменено.", reply_markup=get_main_menu_admin())
+
+
+@router.message(CategoryManagement.waiting_category_name)
+async def enter_cat_name(message: Message, state: FSMContext, **kwargs) -> None:
+    if not message.text or len(message.text.strip()) < 2:
+        await message.answer("Название слишком короткое.")
+        return
+    state_data = await state.get_data()
+    parent_id = state_data.get("parent_id")
+    session: AsyncSession = kwargs["db_session"]
+    cat_repo = CategoryRepository(session)
+    await cat_repo.create(name=message.text.strip(), parent_id=parent_id)
+    await state.clear()
+    label = "Тема" if parent_id else "Категория"
+    await message.answer(f"✅ {label} «{message.text.strip()}» добавлена!", reply_markup=get_main_menu_admin())
+
+
+@router.callback_query(F.data.startswith("cat_rename_"))
+async def cat_rename(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
+        return
+    cat_id = int(callback.data.split("_")[-1])
+    await state.set_state(CategoryManagement.waiting_edit_name)
+    await state.update_data(cat_id=cat_id)
+    session: AsyncSession = kwargs["db_session"]
+    cat_repo = CategoryRepository(session)
+    cat = await cat_repo.get_by_id(cat_id)
+    await callback.message.answer(
+        f"Текущее название: {cat.full_name}\n\nВведите новое название:",
+        reply_markup=get_cancel_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.message(CategoryManagement.waiting_edit_name)
+async def enter_new_cat_name(message: Message, state: FSMContext, **kwargs) -> None:
+    if not message.text or len(message.text.strip()) < 2:
+        await message.answer("Название слишком короткое.")
+        return
+    state_data = await state.get_data()
+    cat_id = state_data.get("cat_id")
+    session: AsyncSession = kwargs["db_session"]
+    cat_repo = CategoryRepository(session)
+    await cat_repo.update_name(cat_id, message.text.strip())
+    await state.clear()
+    await message.answer(f"✅ Название изменено на «{message.text.strip()}»", reply_markup=get_main_menu_admin())
+
+
+@router.callback_query(F.data.startswith("cat_delete_"))
+async def cat_delete(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
+        return
+    cat_id = int(callback.data.split("_")[-1])
+    session: AsyncSession = kwargs["db_session"]
+    cat_repo = CategoryRepository(session)
+    deleted = await cat_repo.delete(cat_id)
+    if deleted:
+        await callback.message.edit_text("✅ Категория удалена.")
+    else:
+        await callback.answer("Нельзя удалить: есть связанные тикеты.", show_alert=True)
+    await callback.answer()
+
+
+# ── Собирает часы (флаг для оператора) ─────────────────────────────
+
+@router.callback_query(F.data.startswith("set_hours_collector_"))
+async def set_hours_collector(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
+        return
+    user_id = int(callback.data.split("_")[-1])
+    session: AsyncSession = kwargs["db_session"]
+    user_service = UserService(session)
+    user = await user_service.get_by_id(user_id)
+    if not user:
+        await callback.answer("Пользователь не найден.")
+        return
+    user.collects_hours = not user.collects_hours
+    status = "включен" if user.collects_hours else "отключен"
+    await callback.message.edit_text(f"Сбор часов для {user.display_name}: {status}")
+    await callback.answer(f"Сбор часов {status}!")

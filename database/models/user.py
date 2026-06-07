@@ -3,16 +3,19 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
-from sqlalchemy import BigInteger, String, DateTime, ForeignKey, Text
+from sqlalchemy import BigInteger, String, DateTime, ForeignKey, Text, Boolean
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database.models.base import Base
+from database.models.timesheet_period import EmployeeType
 
 if TYPE_CHECKING:
     from database.models.role import Role
     from database.models.ticket import Ticket
     from database.models.rating import Rating
     from database.models.audit_log import AuditLog
+    from database.models.quick_reply import QuickReply
 
 
 class User(Base):
@@ -29,6 +32,15 @@ class User(Base):
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
     )
 
+    # Timesheet fields
+    full_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    employee_type: Mapped[Optional[str]] = mapped_column(
+        SAEnum(EmployeeType, name="employee_type_enum", native_enum=True),
+        nullable=True,
+    )
+    workplace: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, default="Производство")
+    collects_hours: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     # lazy="select" — loaded on demand only, no auto-cascade
     role: Mapped["Role"] = relationship(back_populates="users", lazy="select")
     tickets: Mapped[list["Ticket"]] = relationship(
@@ -42,6 +54,9 @@ class User(Base):
     )
     audit_logs: Mapped[list["AuditLog"]] = relationship(
         back_populates="user", foreign_keys="AuditLog.user_id", lazy="select"
+    )
+    quick_replies: Mapped[list["QuickReply"]] = relationship(
+        back_populates="user", lazy="select"
     )
 
     @property

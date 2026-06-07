@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Text, DateTime, ForeignKey, BigInteger
+from sqlalchemy import Text, DateTime, ForeignKey, BigInteger, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database.models.base import Base
@@ -21,7 +21,9 @@ class TicketMessage(Base):
     sender_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.telegram_id"), nullable=False
     )
-    text: Mapped[str] = mapped_column(Text, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    file_id: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    file_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "photo" or "document"
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
     )

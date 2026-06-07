@@ -9,16 +9,18 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from config.settings import get_settings
-from database.session import create_tables
+from database.session import create_tables, async_session_factory
 from database.repositories.category_repo import CategoryRepository
 from database.repositories.role_repo import RoleRepository
-from database.session import async_session_factory
+from database.repositories.user_repo import UserRepository
+from database.repositories.bot_setting_repo import BotSettingRepository
 from services.user_service import UserService
 from bot.middlewares.db_session_middleware import DbSessionMiddleware
 from bot.middlewares.role_middleware import RoleMiddleware
 from bot.routers.user_router import user_router
 from bot.routers.operator_router import operator_router
 from bot.routers.admin_router import admin_router
+from bot.routers.timesheet_router import timesheet_router
 
 
 async def seed_database() -> None:
@@ -60,6 +62,61 @@ async def wait_for_database(max_retries: int = 10, delay: float = 3.0) -> None:
                 await asyncio.sleep(delay)
             else:
                 raise
+
+
+async def check_timesheet_reminders(bot: Bot) -> None:
+    """Periodic check for timesheet reminders."""
+    from services.timesheet_service import TimesheetService
+    from database.models.timesheet_period import EmployeeType
+
+    logger = logging.getLogger(__name__)
+    try:
+        async with async_session_factory() as session:
+            ts_service = TimesheetService(session)
+            reminders = await ts_service.get_periods_for_reminder()
+
+            # 2 days before deadline — remind all users
+            for period in reminders.get("two_days_before", []):
+                users = await ts_service.get_users_for_period(period.id)
+                for user in users:
+                    try:
+                        await bot.send_message(
+                            user.telegram_id,
+                            f"⏰ Напоминание: через 2 дня дедлайн сдачи часов "
+                            f"({period.deadline.strftime('%d.%m.%Y')}). "
+                            f"Период: {period.start_date.strftime('%d.%m')}–{period.end_date.strftime('%d.%m')}",
+                        )
+                    except Exception:
+                        pass
+
+            # Deadline day — remind all users
+            for period in reminders.get("deadline_day", []):
+                users = await ts_service.get_users_for_period(period.id)
+                for user in users:
+                    try:
+                        await bot.send_message(
+                            user.telegram_id,
+                            f"🚨 Сегодня дедлайн сдачи часов! "
+                            f"Период: {period.start_date.strftime('%d.%m')}–{period.end_date.strftime('%d.%m')}",
+                        )
+                    except Exception:
+                        pass
+
+            # Half day before — remind only non-submitters
+            for period in reminders.get("half_day_before", []):
+                status = await ts_service.get_submission_status(period.id)
+                for user in status.get("missing", []):
+                    try:
+                        await bot.send_message(
+                            user.telegram_id,
+                            f"⚠ Осталось менее 12 часов до дедлайна! "
+                            f"Сдайте часы за период {period.start_date.strftime('%d.%m')}–{period.end_date.strftime('%d.%m')}",
+                        )
+                    except Exception:
+                        pass
+
+    except Exception as e:
+        logger.error("Timesheet reminder error: %s", e)
 
 
 async def main() -> None:
@@ -117,13 +174,24 @@ async def main() -> None:
     dp.include_router(user_router)
     dp.include_router(operator_router)
     dp.include_router(admin_router)
+    dp.include_router(timesheet_router)
 
-    # 6. Start polling
-    # aiogram automatically injects the Bot instance into handler data["bot"]
+    # 6. Start periodic reminder task
+    reminder_task = asyncio.create_task(_reminder_loop(bot))
+
+    # 7. Start polling
     try:
         await dp.start_polling(bot)
     finally:
+        reminder_task.cancel()
         await bot.session.close()
+
+
+async def _reminder_loop(bot: Bot) -> None:
+    """Background task that checks reminders every 30 minutes."""
+    while True:
+        await asyncio.sleep(1800)  # 30 minutes
+        await check_timesheet_reminders(bot)
 
 
 if __name__ == "__main__":

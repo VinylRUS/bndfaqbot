@@ -132,5 +132,63 @@ async def migrate_schema() -> None:
 
 
 async def create_tables() -> None:
+    # Import all models so Base.metadata knows about them
+    import database.models.user  # noqa: F401
+    import database.models.role  # noqa: F401
+    import database.models.ticket  # noqa: F401
+    import database.models.ticket_message  # noqa: F401
+    import database.models.faq  # noqa: F401
+    import database.models.auto_answer  # noqa: F401
+    import database.models.rating  # noqa: F401
+    import database.models.audit_log  # noqa: F401
+    import database.models.category  # noqa: F401
+    import database.models.quick_reply  # noqa: F401
+    import database.models.timesheet_period  # noqa: F401
+    import database.models.timesheet_entry  # noqa: F401
+    import database.models.bot_setting  # noqa: F401
+
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # Add new columns to existing tables (safe — uses IF NOT EXISTS pattern)
+    await _migrate_v7()
+
+
+async def _migrate_v7() -> None:
+    """Add new columns for v7 features to existing tables.
+
+    This is safe to run on every startup — it checks column existence.
+    """
+    column_additions = [
+        # User table — timesheet fields
+        ("users", "full_name", "ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(255)"),
+        ("users", "employee_type", "ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_type VARCHAR(20)"),
+        ("users", "workplace", "ALTER TABLE users ADD COLUMN IF NOT EXISTS workplace VARCHAR(100) DEFAULT 'Производство'"),
+        ("users", "collects_hours", "ALTER TABLE users ADD COLUMN IF NOT EXISTS collects_hours BOOLEAN DEFAULT FALSE"),
+        # Ticket messages — attachment fields
+        ("ticket_messages", "file_id", "ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS file_id VARCHAR(500)"),
+        ("ticket_messages", "file_type", "ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS file_type VARCHAR(20)"),
+    ]
+
+    async with async_engine.begin() as conn:
+        for table, column, sql in column_additions:
+            try:
+                # Check if column exists
+                result = await conn.execute(text(
+                    f"SELECT column_name FROM information_schema.columns "
+                    f"WHERE table_name = '{table}' AND column_name = '{column}'"
+                ))
+                if result.scalar_one_or_none() is None:
+                    await conn.execute(text(sql))
+                    logger.info("Added column %s.%s", table, column)
+            except Exception as e:
+                logger.warning("Column migration %s.%s skipped: %s", table, column, e)
+
+    # Alter ticket_messages.text to allow empty (default="")
+    try:
+        async with async_engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE ticket_messages ALTER COLUMN text SET DEFAULT ''"
+            ))
+    except Exception as e:
+        logger.warning("ticket_messages.text default skipped: %s", e)

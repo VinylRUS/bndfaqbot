@@ -12,17 +12,20 @@ def get_main_menu_user() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text="❓ Создать обращение")],
         [KeyboardButton(text="📚 FAQ"), KeyboardButton(text="📋 Мои обращения")],
+        [KeyboardButton(text="🕐 Передать часы")],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
 def get_main_menu_operator() -> ReplyKeyboardMarkup:
-    """Operator sees their ticket buttons + user buttons (FAQ, create ticket, my tickets)."""
+    """Operator sees their ticket buttons + user buttons + quick replies."""
     keyboard = [
         [KeyboardButton(text="📥 Новые тикеты")],
         [KeyboardButton(text="🛠 В работе"), KeyboardButton(text="📜 История")],
+        [KeyboardButton(text="⚡ Быстрые ответы")],
         [KeyboardButton(text="❓ Создать обращение")],
         [KeyboardButton(text="📚 FAQ"), KeyboardButton(text="📋 Мои обращения")],
+        [KeyboardButton(text="🕐 Передать часы")],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -34,6 +37,8 @@ def get_main_menu_admin() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="🤖 Автоответы"), KeyboardButton(text="📊 Статистика")],
         [KeyboardButton(text="📥 Новые тикеты"), KeyboardButton(text="🛠 В работе")],
         [KeyboardButton(text="📜 История"), KeyboardButton(text="📤 Выгрузка")],
+        [KeyboardButton(text="🕐 Табель"), KeyboardButton(text="📁 Категории")],
+        [KeyboardButton(text="⚡ Быстрые ответы")],
         [KeyboardButton(text="❓ Создать обращение"), KeyboardButton(text="⚙ Настройки")],
         [KeyboardButton(text="📚 FAQ"), KeyboardButton(text="📋 Мои обращения")],
     ]

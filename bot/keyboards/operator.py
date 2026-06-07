@@ -48,6 +48,7 @@ def get_ticket_actions_keyboard(
     can_take: bool = False,
     can_reply: bool = False,
     can_close: bool = False,
+    can_quick_reply: bool = False,
 ) -> InlineKeyboardMarkup:
     buttons = []
 
@@ -58,6 +59,10 @@ def get_ticket_actions_keyboard(
     if can_reply:
         buttons.append(
             [InlineKeyboardButton(text="✉ Ответить", callback_data=f"reply_{ticket_id}")]
+        )
+    if can_quick_reply:
+        buttons.append(
+            [InlineKeyboardButton(text="⚡ Быстрый ответ", callback_data=f"quick_reply_{ticket_id}")]
         )
     if can_close:
         buttons.append(

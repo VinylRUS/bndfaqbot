@@ -116,6 +116,7 @@ def get_role_change_keyboard(user_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="👤 Пользователь", callback_data=f"set_role_{user_id}_user")],
         [InlineKeyboardButton(text="🛠 Оператор", callback_data=f"set_role_{user_id}_operator")],
         [InlineKeyboardButton(text="👑 Админ", callback_data=f"set_role_{user_id}_admin")],
+        [InlineKeyboardButton(text="🕐 Собирает часы (вкл/выкл)", callback_data=f"set_hours_collector_{user_id}")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_users")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)

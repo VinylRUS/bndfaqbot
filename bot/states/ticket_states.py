@@ -9,3 +9,7 @@ class TicketCreation(StatesGroup):
 
 class OperatorReply(StatesGroup):
     writing_reply = State()
+
+
+class UserReply(StatesGroup):
+    writing_reply = State()
