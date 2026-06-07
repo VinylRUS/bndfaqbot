@@ -261,7 +261,7 @@ async def ts_enter_end_day(message: Message, state: FSMContext, **kwargs) -> Non
 
 @router.callback_query(TimesheetStates.choosing_employee_type, F.data.startswith("ts_emptype_"))
 async def ts_select_employee_type(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
-    emp_type_str = callback.data.split("_")[-1]
+    emp_type_str = callback.data.removeprefix("ts_emptype_")
     emp_type = EmployeeType(emp_type_str)
 
     state_data = await state.get_data()
@@ -422,9 +422,10 @@ async def ts_set_employee_type(callback: CallbackQuery, **kwargs) -> None:
 
 @router.callback_query(F.data.startswith("ts_setemptype_"))
 async def ts_do_set_employee_type(callback: CallbackQuery, **kwargs) -> None:
-    parts = callback.data.split("_")
-    user_id = int(parts[-2])
-    emp_type_str = parts[-1]
+    remainder = callback.data.removeprefix("ts_setemptype_")  # "123_full_time"
+    idx = remainder.index("_")
+    user_id = int(remainder[:idx])
+    emp_type_str = remainder[idx + 1:]  # "full_time"
     session: AsyncSession = kwargs["db_session"]
     user_service = UserService(session)
     user = await user_service.get_by_id(user_id)
@@ -524,7 +525,11 @@ async def ts_set_spreadsheet(callback: CallbackQuery, state: FSMContext, **kwarg
 
 @router.message(TimesheetStates.entering_spreadsheet_id)
 async def ts_do_set_spreadsheet(message: Message, state: FSMContext, **kwargs) -> None:
-    spreadsheet_id = message.text.strip().split("/")[-1] if "/" in message.text else message.text.strip()
+    raw_text = message.text or message.caption
+    if not raw_text:
+        await message.answer("❌ Отправьте Spreadsheet ID текстом.")
+        return
+    spreadsheet_id = raw_text.strip().split("/")[-1] if "/" in raw_text else raw_text.strip()
     session: AsyncSession = kwargs["db_session"]
     ts_service = TimesheetService(session)
     await ts_service.set_google_settings(spreadsheet_id=spreadsheet_id, credentials_json="")
@@ -545,7 +550,11 @@ async def ts_set_json(callback: CallbackQuery, state: FSMContext, **kwargs) -> N
 @router.message(TimesheetStates.entering_credentials_json)
 async def ts_do_set_json(message: Message, state: FSMContext, **kwargs) -> None:
     import json
-    json_text = message.text.strip()
+    json_text = message.text or message.caption
+    if not json_text:
+        await message.answer("❌ Отправьте JSON текстом, а не файлом. Скопируйте и вставьте содержимое файла.")
+        return
+    json_text = json_text.strip()
     try:
         json.loads(json_text)  # Validate JSON
     except json.JSONDecodeError:
