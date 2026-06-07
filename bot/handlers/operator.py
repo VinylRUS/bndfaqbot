@@ -3,6 +3,7 @@ from __future__ import annotations
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models.role import RoleEnum
 from database.models.ticket import TicketStatus
@@ -26,19 +27,19 @@ router = Router()
 
 # ── Проверка роли оператора ────────────────────────────────────────
 
-async def _check_operator(data: dict) -> bool:
-    """Check operator/admin role from middleware data (no extra DB query)."""
-    user_role: RoleEnum | None = data.get("user_role")
+def _is_operator(**kwargs) -> bool:
+    """Check operator/admin role from middleware data."""
+    user_role: RoleEnum | None = kwargs.get("user_role")
     return user_role is not None and can_handle_tickets(user_role)
 
 
-async def _check_operator_and_reply(callback: CallbackQuery, data: dict) -> bool:
+async def _check_operator_and_reply(callback: CallbackQuery, **kwargs) -> bool:
     """Check operator + send error + log unauthorized access."""
-    if await _check_operator(data):
+    if _is_operator(**kwargs):
         return True
 
     await callback.answer("Недостаточно прав для выполнения действия.", show_alert=True)
-    session = data.get("db_session")
+    session: AsyncSession | None = kwargs.get("db_session")
     if session:
         audit_service = AuditService(session)
         await audit_service.log_unauthorized_access(
@@ -52,12 +53,12 @@ async def _check_operator_and_reply(callback: CallbackQuery, data: dict) -> bool
 # ── Новые тикеты ───────────────────────────────────────────────────
 
 @router.message(F.text == "📥 Новые тикеты")
-async def show_new_tickets(message: Message, data: dict) -> None:
-    if not await _check_operator(data):
+async def show_new_tickets(message: Message, **kwargs) -> None:
+    if not _is_operator(**kwargs):
         await message.answer("Недостаточно прав для выполнения действия.")
         return
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     ticket_service = TicketService(session)
     tickets = await ticket_service.get_new_tickets()
 
@@ -74,12 +75,12 @@ async def show_new_tickets(message: Message, data: dict) -> None:
 # ── В работе ───────────────────────────────────────────────────────
 
 @router.message(F.text == "🛠 В работе")
-async def show_active_tickets(message: Message, data: dict) -> None:
-    if not await _check_operator(data):
+async def show_active_tickets(message: Message, **kwargs) -> None:
+    if not _is_operator(**kwargs):
         await message.answer("Недостаточно прав для выполнения действия.")
         return
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     ticket_service = TicketService(session)
     tickets = await ticket_service.get_operator_active(message.from_user.id)
 
@@ -96,12 +97,12 @@ async def show_active_tickets(message: Message, data: dict) -> None:
 # ── История ────────────────────────────────────────────────────────
 
 @router.message(F.text == "📜 История")
-async def show_history(message: Message, data: dict) -> None:
-    if not await _check_operator(data):
+async def show_history(message: Message, **kwargs) -> None:
+    if not _is_operator(**kwargs):
         await message.answer("Недостаточно прав для выполнения действия.")
         return
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     ticket_service = TicketService(session)
     tickets = await ticket_service.get_operator_history(message.from_user.id)
 
@@ -118,13 +119,13 @@ async def show_history(message: Message, data: dict) -> None:
 # ── Просмотр тикета оператором ─────────────────────────────────────
 
 @router.callback_query(F.data.startswith("op_ticket_"))
-async def operator_view_ticket(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_operator_and_reply(callback, data):
+async def operator_view_ticket(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_operator_and_reply(callback, **kwargs):
         return
 
     ticket_id = int(callback.data.split("_")[-1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     ticket_service = TicketService(session)
     ticket = await ticket_service.get_by_id(ticket_id)
     messages = await ticket_service.get_ticket_messages(ticket_id)
@@ -159,13 +160,13 @@ async def operator_view_ticket(callback: CallbackQuery, data: dict) -> None:
 # ── Взять тикет в работу ──────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("take_"))
-async def take_ticket(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_operator_and_reply(callback, data):
+async def take_ticket(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_operator_and_reply(callback, **kwargs):
         return
 
     ticket_id = int(callback.data.split("_")[1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     ticket_service = TicketService(session)
     ticket = await ticket_service.assign_operator(ticket_id, callback.from_user.id)
 
@@ -179,7 +180,7 @@ async def take_ticket(callback: CallbackQuery, data: dict) -> None:
     )
 
     # Notify the user using the shared bot instance
-    bot: Bot = data["bot"]
+    bot: Bot = kwargs["bot"]
     try:
         await bot.send_message(
             ticket.author_id,
@@ -194,13 +195,13 @@ async def take_ticket(callback: CallbackQuery, data: dict) -> None:
 # ── Ответить на тикет ─────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("reply_"))
-async def reply_to_ticket(callback: CallbackQuery, state: FSMContext, data: dict) -> None:
-    if not await _check_operator_and_reply(callback, data):
+async def reply_to_ticket(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    if not await _check_operator_and_reply(callback, **kwargs):
         return
 
     ticket_id = int(callback.data.split("_")[1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     ticket_service = TicketService(session)
     ticket = await ticket_service.get_by_id(ticket_id)
 
@@ -219,13 +220,13 @@ async def reply_to_ticket(callback: CallbackQuery, state: FSMContext, data: dict
 
 
 @router.message(OperatorReply.writing_reply, F.text == "❌ Отмена")
-async def cancel_reply(message: Message, state: FSMContext) -> None:
+async def cancel_reply(message: Message, state: FSMContext, **kwargs) -> None:
     await state.clear()
     await message.answer("Ответ отменён.", reply_markup=get_main_menu_operator())
 
 
 @router.message(OperatorReply.writing_reply)
-async def send_reply(message: Message, state: FSMContext, data: dict) -> None:
+async def send_reply(message: Message, state: FSMContext, **kwargs) -> None:
     if not message.text or len(message.text.strip()) < 1:
         await message.answer("Текст ответа не может быть пустым.")
         return
@@ -233,7 +234,7 @@ async def send_reply(message: Message, state: FSMContext, data: dict) -> None:
     state_data = await state.get_data()
     ticket_id = state_data.get("ticket_id")
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     ticket_service = TicketService(session)
     result = await ticket_service.add_message(
         ticket_id=ticket_id,
@@ -246,7 +247,7 @@ async def send_reply(message: Message, state: FSMContext, data: dict) -> None:
     if result:
         ticket = result["ticket"]
         # Notify the user using the shared bot instance
-        bot: Bot = data["bot"]
+        bot: Bot = kwargs["bot"]
         try:
             await bot.send_message(
                 ticket.author_id,
@@ -264,13 +265,13 @@ async def send_reply(message: Message, state: FSMContext, data: dict) -> None:
 # ── Закрыть тикет ─────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("close_"))
-async def close_ticket(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_operator_and_reply(callback, data):
+async def close_ticket(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_operator_and_reply(callback, **kwargs):
         return
 
     ticket_id = int(callback.data.split("_")[1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     ticket_service = TicketService(session)
     ticket = await ticket_service.get_by_id(ticket_id)
 
@@ -290,7 +291,7 @@ async def close_ticket(callback: CallbackQuery, data: dict) -> None:
     )
 
     # Notify user and request rating using the shared bot instance
-    bot: Bot = data["bot"]
+    bot: Bot = kwargs["bot"]
     try:
         await bot.send_message(
             closed_ticket.author_id,
@@ -306,7 +307,7 @@ async def close_ticket(callback: CallbackQuery, data: dict) -> None:
 # ── Назад в меню оператора ────────────────────────────────────────
 
 @router.callback_query(F.data == "back_to_op_menu")
-async def back_to_op_menu(callback: CallbackQuery, state: FSMContext) -> None:
+async def back_to_op_menu(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     await state.clear()
     await callback.message.answer("Главное меню 🛠", reply_markup=get_main_menu_operator())
     await callback.answer()

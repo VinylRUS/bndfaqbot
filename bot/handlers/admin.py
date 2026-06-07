@@ -3,8 +3,10 @@ from __future__ import annotations
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.fsm.context import FSMContext
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models.role import RoleEnum
+from database.models.user import User
 from services.user_service import UserService
 from services.faq_service import FAQService
 from services.auto_answer_service import AutoAnswerService
@@ -34,43 +36,43 @@ router = Router()
 
 # ── Проверка прав администратора ───────────────────────────────────
 
-async def _check_admin(data: dict) -> bool:
-    """Check admin role from middleware-injected data (no extra DB query)."""
-    user_role: RoleEnum | None = data.get("user_role")
+def _is_admin(**kwargs) -> bool:
+    """Check admin role from middleware-injected data."""
+    user_role: RoleEnum | None = kwargs.get("user_role")
     return user_role is not None and is_admin(user_role)
 
 
-async def _check_admin_and_reply(message_or_callback, data: dict) -> bool:
+async def _check_admin_and_reply(event, **kwargs) -> bool:
     """Check admin + send error message + log unauthorized access."""
-    if await _check_admin(data):
+    if _is_admin(**kwargs):
         return True
 
-    session = data.get("db_session")
-    if isinstance(message_or_callback, CallbackQuery):
-        await message_or_callback.answer(
+    session: AsyncSession | None = kwargs.get("db_session")
+    if isinstance(event, CallbackQuery):
+        await event.answer(
             "Недостаточно прав для выполнения действия.", show_alert=True
         )
         if session:
             audit_service = AuditService(session)
             await audit_service.log_unauthorized_access(
-                user_id=message_or_callback.from_user.id,
+                user_id=event.from_user.id,
                 role=None,
-                action=message_or_callback.data or "admin_action",
+                action=event.data or "admin_action",
             )
     else:
-        await message_or_callback.answer("Недостаточно прав для выполнения действия.")
+        await event.answer("Недостаточно прав для выполнения действия.")
     return False
 
 
 # ── Пользователи ───────────────────────────────────────────────────
 
 @router.message(F.text == "👥 Пользователи")
-async def show_users(message: Message, data: dict) -> None:
-    if not await _check_admin(data):
+async def show_users(message: Message, **kwargs) -> None:
+    if not _is_admin(**kwargs):
         await message.answer("Недостаточно прав для выполнения действия.")
         return
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     user_service = UserService(session)
     users = await user_service.get_all_users(limit=10, offset=0)
     total = await user_service.count_users()
@@ -86,14 +88,14 @@ async def show_users(message: Message, data: dict) -> None:
 
 
 @router.callback_query(F.data.startswith("users_page_"))
-async def users_page(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def users_page(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
     page = int(callback.data.split("_")[-1])
     per_page = 10
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     user_service = UserService(session)
     users = await user_service.get_all_users(limit=per_page, offset=page * per_page)
     total = await user_service.count_users()
@@ -106,13 +108,13 @@ async def users_page(callback: CallbackQuery, data: dict) -> None:
 
 
 @router.callback_query(F.data.startswith("admin_user_"))
-async def admin_view_user(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def admin_view_user(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
     user_id = int(callback.data.split("_")[-1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     user_service = UserService(session)
     user = await user_service.get_by_id(user_id)
 
@@ -141,8 +143,8 @@ async def admin_view_user(callback: CallbackQuery, data: dict) -> None:
 
 
 @router.callback_query(F.data.startswith("set_role_"))
-async def set_role(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def set_role(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
     parts = callback.data.split("_")
@@ -160,7 +162,7 @@ async def set_role(callback: CallbackQuery, data: dict) -> None:
         await callback.answer("Неизвестная роль.")
         return
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     user_service = UserService(session)
     user = await user_service.change_role(
         admin_telegram_id=callback.from_user.id,
@@ -181,11 +183,11 @@ async def set_role(callback: CallbackQuery, data: dict) -> None:
 
 
 @router.callback_query(F.data == "back_to_users")
-async def back_to_users(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def back_to_users(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     user_service = UserService(session)
     users = await user_service.get_all_users(limit=10, offset=0)
     total = await user_service.count_users()
@@ -200,8 +202,8 @@ async def back_to_users(callback: CallbackQuery, data: dict) -> None:
 # ── FAQ Management ─────────────────────────────────────────────────
 
 @router.message(F.text == "📚 Управление FAQ")
-async def admin_faq_menu(message: Message, data: dict) -> None:
-    if not await _check_admin(data):
+async def admin_faq_menu(message: Message, **kwargs) -> None:
+    if not _is_admin(**kwargs):
         await message.answer("Недостаточно прав для выполнения действия.")
         return
 
@@ -212,8 +214,8 @@ async def admin_faq_menu(message: Message, data: dict) -> None:
 
 
 @router.callback_query(F.data == "admin_faq_menu")
-async def admin_faq_menu_callback(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def admin_faq_menu_callback(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
     await callback.message.edit_text(
@@ -224,11 +226,11 @@ async def admin_faq_menu_callback(callback: CallbackQuery, data: dict) -> None:
 
 
 @router.callback_query(F.data == "admin_faq_list")
-async def admin_faq_list(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def admin_faq_list(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     faq_service = FAQService(session)
     faqs = await faq_service.get_all()
 
@@ -245,13 +247,13 @@ async def admin_faq_list(callback: CallbackQuery, data: dict) -> None:
 
 
 @router.callback_query(F.data.startswith("admin_faq_") and ~F.data.startswith("admin_faq_menu") and ~F.data.startswith("admin_faq_list") and ~F.data.startswith("admin_faq_add") and ~F.data.startswith("admin_faq_edit") and ~F.data.startswith("admin_faq_toggle") and ~F.data.startswith("admin_faq_del"))
-async def admin_faq_detail(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def admin_faq_detail(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
     faq_id = int(callback.data.split("_")[-1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     faq_service = FAQService(session)
     faq = await faq_service.get_by_id(faq_id)
 
@@ -274,8 +276,8 @@ async def admin_faq_detail(callback: CallbackQuery, data: dict) -> None:
 
 
 @router.callback_query(F.data == "admin_faq_add")
-async def admin_faq_add(callback: CallbackQuery, state: FSMContext, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def admin_faq_add(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
     await state.set_state(FAQManagement.waiting_question)
@@ -287,13 +289,13 @@ async def admin_faq_add(callback: CallbackQuery, state: FSMContext, data: dict) 
 
 
 @router.message(FAQManagement.waiting_question, F.text == "❌ Отмена")
-async def cancel_faq_add(message: Message, state: FSMContext) -> None:
+async def cancel_faq_add(message: Message, state: FSMContext, **kwargs) -> None:
     await state.clear()
     await message.answer("Добавление FAQ отменено.", reply_markup=get_main_menu_admin())
 
 
 @router.message(FAQManagement.waiting_question)
-async def faq_enter_question(message: Message, state: FSMContext, data: dict) -> None:
+async def faq_enter_question(message: Message, state: FSMContext, **kwargs) -> None:
     if not message.text or len(message.text.strip()) < 3:
         await message.answer("Вопрос слишком короткий. Попробуйте ещё раз.")
         return
@@ -304,7 +306,7 @@ async def faq_enter_question(message: Message, state: FSMContext, data: dict) ->
 
 
 @router.message(FAQManagement.waiting_answer)
-async def faq_enter_answer(message: Message, state: FSMContext, data: dict) -> None:
+async def faq_enter_answer(message: Message, state: FSMContext, **kwargs) -> None:
     if not message.text or len(message.text.strip()) < 3:
         await message.answer("Ответ слишком короткий. Попробуйте ещё раз.")
         return
@@ -312,7 +314,7 @@ async def faq_enter_answer(message: Message, state: FSMContext, data: dict) -> N
     state_data = await state.get_data()
     question = state_data.get("question")
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     faq_service = FAQService(session)
     await faq_service.create(
         admin_id=message.from_user.id,
@@ -328,13 +330,13 @@ async def faq_enter_answer(message: Message, state: FSMContext, data: dict) -> N
 
 
 @router.callback_query(F.data.startswith("admin_faq_toggle_"))
-async def admin_faq_toggle(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def admin_faq_toggle(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
     faq_id = int(callback.data.split("_")[-1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     faq_service = FAQService(session)
     faq = await faq_service.toggle_active(callback.from_user.id, faq_id)
 
@@ -347,13 +349,13 @@ async def admin_faq_toggle(callback: CallbackQuery, data: dict) -> None:
 
 
 @router.callback_query(F.data.startswith("admin_faq_del_"))
-async def admin_faq_delete(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def admin_faq_delete(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
     faq_id = int(callback.data.split("_")[-1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     faq_service = FAQService(session)
     deleted = await faq_service.delete(callback.from_user.id, faq_id)
 
@@ -365,13 +367,13 @@ async def admin_faq_delete(callback: CallbackQuery, data: dict) -> None:
 
 
 @router.callback_query(F.data.startswith("admin_faq_edit_"))
-async def admin_faq_edit(callback: CallbackQuery, state: FSMContext, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def admin_faq_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
     faq_id = int(callback.data.split("_")[-1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     faq_service = FAQService(session)
     faq = await faq_service.get_by_id(faq_id)
 
@@ -389,19 +391,19 @@ async def admin_faq_edit(callback: CallbackQuery, state: FSMContext, data: dict)
 
 
 @router.message(FAQManagement.waiting_edit_question, F.text == "❌ Отмена")
-async def cancel_faq_edit(message: Message, state: FSMContext) -> None:
+async def cancel_faq_edit(message: Message, state: FSMContext, **kwargs) -> None:
     await state.clear()
     await message.answer("Редактирование FAQ отменено.", reply_markup=get_main_menu_admin())
 
 
 @router.message(FAQManagement.waiting_edit_question)
-async def faq_edit_question(message: Message, state: FSMContext, data: dict) -> None:
+async def faq_edit_question(message: Message, state: FSMContext, **kwargs) -> None:
     question = None if (message.text and message.text.strip() == "-") else message.text.strip()
     await state.update_data(new_question=question)
     await state.set_state(FAQManagement.waiting_edit_answer)
 
     state_data = await state.get_data()
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     faq_service = FAQService(session)
     faq = await faq_service.get_by_id(state_data["faq_id"])
 
@@ -411,13 +413,13 @@ async def faq_edit_question(message: Message, state: FSMContext, data: dict) -> 
 
 
 @router.message(FAQManagement.waiting_edit_answer)
-async def faq_edit_answer(message: Message, state: FSMContext, data: dict) -> None:
+async def faq_edit_answer(message: Message, state: FSMContext, **kwargs) -> None:
     answer = None if (message.text and message.text.strip() == "-") else message.text.strip()
     state_data = await state.get_data()
     faq_id = state_data.get("faq_id")
     new_question = state_data.get("new_question")
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     faq_service = FAQService(session)
     await faq_service.update(
         admin_id=message.from_user.id,
@@ -433,8 +435,8 @@ async def faq_edit_answer(message: Message, state: FSMContext, data: dict) -> No
 # ── Автоответы Management ──────────────────────────────────────────
 
 @router.message(F.text == "🤖 Автоответы")
-async def admin_auto_answer_menu(message: Message, data: dict) -> None:
-    if not await _check_admin(data):
+async def admin_auto_answer_menu(message: Message, **kwargs) -> None:
+    if not _is_admin(**kwargs):
         await message.answer("Недостаточно прав для выполнения действия.")
         return
 
@@ -445,8 +447,8 @@ async def admin_auto_answer_menu(message: Message, data: dict) -> None:
 
 
 @router.callback_query(F.data == "admin_aa_menu")
-async def admin_aa_menu_callback(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def admin_aa_menu_callback(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
     await callback.message.edit_text(
@@ -457,11 +459,11 @@ async def admin_aa_menu_callback(callback: CallbackQuery, data: dict) -> None:
 
 
 @router.callback_query(F.data == "admin_aa_list")
-async def admin_aa_list(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def admin_aa_list(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     aa_service = AutoAnswerService(session)
     auto_answers = await aa_service.get_all()
 
@@ -478,13 +480,13 @@ async def admin_aa_list(callback: CallbackQuery, data: dict) -> None:
 
 
 @router.callback_query(F.data.startswith("admin_aa_") and ~F.data.startswith("admin_aa_menu") and ~F.data.startswith("admin_aa_list") and ~F.data.startswith("admin_aa_add") and ~F.data.startswith("admin_aa_edit") and ~F.data.startswith("admin_aa_toggle") and ~F.data.startswith("admin_aa_del"))
-async def admin_aa_detail(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def admin_aa_detail(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
     aa_id = int(callback.data.split("_")[-1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     aa_service = AutoAnswerService(session)
     aa = await aa_service.get_by_id(aa_id)
 
@@ -507,8 +509,8 @@ async def admin_aa_detail(callback: CallbackQuery, data: dict) -> None:
 
 
 @router.callback_query(F.data == "admin_aa_add")
-async def admin_aa_add(callback: CallbackQuery, state: FSMContext, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def admin_aa_add(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
     await state.set_state(AutoAnswerManagement.waiting_keywords)
@@ -520,13 +522,13 @@ async def admin_aa_add(callback: CallbackQuery, state: FSMContext, data: dict) -
 
 
 @router.message(AutoAnswerManagement.waiting_keywords, F.text == "❌ Отмена")
-async def cancel_aa_add(message: Message, state: FSMContext) -> None:
+async def cancel_aa_add(message: Message, state: FSMContext, **kwargs) -> None:
     await state.clear()
     await message.answer("Добавление автоответа отменено.", reply_markup=get_main_menu_admin())
 
 
 @router.message(AutoAnswerManagement.waiting_keywords)
-async def aa_enter_keywords(message: Message, state: FSMContext, data: dict) -> None:
+async def aa_enter_keywords(message: Message, state: FSMContext, **kwargs) -> None:
     if not message.text or len(message.text.strip()) < 2:
         await message.answer("Ключевые слова слишком короткие. Попробуйте ещё раз.")
         return
@@ -537,7 +539,7 @@ async def aa_enter_keywords(message: Message, state: FSMContext, data: dict) -> 
 
 
 @router.message(AutoAnswerManagement.waiting_answer)
-async def aa_enter_answer(message: Message, state: FSMContext, data: dict) -> None:
+async def aa_enter_answer(message: Message, state: FSMContext, **kwargs) -> None:
     if not message.text or len(message.text.strip()) < 3:
         await message.answer("Ответ слишком короткий. Попробуйте ещё раз.")
         return
@@ -545,7 +547,7 @@ async def aa_enter_answer(message: Message, state: FSMContext, data: dict) -> No
     state_data = await state.get_data()
     keywords = state_data.get("keywords")
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     aa_service = AutoAnswerService(session)
     await aa_service.create(
         admin_id=message.from_user.id,
@@ -561,13 +563,13 @@ async def aa_enter_answer(message: Message, state: FSMContext, data: dict) -> No
 
 
 @router.callback_query(F.data.startswith("admin_aa_toggle_"))
-async def admin_aa_toggle(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def admin_aa_toggle(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
     aa_id = int(callback.data.split("_")[-1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     aa_service = AutoAnswerService(session)
     aa = await aa_service.toggle_active(callback.from_user.id, aa_id)
 
@@ -580,13 +582,13 @@ async def admin_aa_toggle(callback: CallbackQuery, data: dict) -> None:
 
 
 @router.callback_query(F.data.startswith("admin_aa_del_"))
-async def admin_aa_delete(callback: CallbackQuery, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def admin_aa_delete(callback: CallbackQuery, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
     aa_id = int(callback.data.split("_")[-1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     aa_service = AutoAnswerService(session)
     deleted = await aa_service.delete(callback.from_user.id, aa_id)
 
@@ -598,13 +600,13 @@ async def admin_aa_delete(callback: CallbackQuery, data: dict) -> None:
 
 
 @router.callback_query(F.data.startswith("admin_aa_edit_"))
-async def admin_aa_edit(callback: CallbackQuery, state: FSMContext, data: dict) -> None:
-    if not await _check_admin_and_reply(callback, data):
+async def admin_aa_edit(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    if not await _check_admin_and_reply(callback, **kwargs):
         return
 
     aa_id = int(callback.data.split("_")[-1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     aa_service = AutoAnswerService(session)
     aa = await aa_service.get_by_id(aa_id)
 
@@ -622,19 +624,19 @@ async def admin_aa_edit(callback: CallbackQuery, state: FSMContext, data: dict) 
 
 
 @router.message(AutoAnswerManagement.waiting_edit_keywords, F.text == "❌ Отмена")
-async def cancel_aa_edit(message: Message, state: FSMContext) -> None:
+async def cancel_aa_edit(message: Message, state: FSMContext, **kwargs) -> None:
     await state.clear()
     await message.answer("Редактирование автоответа отменено.", reply_markup=get_main_menu_admin())
 
 
 @router.message(AutoAnswerManagement.waiting_edit_keywords)
-async def aa_edit_keywords(message: Message, state: FSMContext, data: dict) -> None:
+async def aa_edit_keywords(message: Message, state: FSMContext, **kwargs) -> None:
     keywords = None if (message.text and message.text.strip() == "-") else message.text.strip()
     await state.update_data(new_keywords=keywords)
     await state.set_state(AutoAnswerManagement.waiting_edit_answer)
 
     state_data = await state.get_data()
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     aa_service = AutoAnswerService(session)
     aa = await aa_service.get_by_id(state_data["aa_id"])
 
@@ -644,13 +646,13 @@ async def aa_edit_keywords(message: Message, state: FSMContext, data: dict) -> N
 
 
 @router.message(AutoAnswerManagement.waiting_edit_answer)
-async def aa_edit_answer(message: Message, state: FSMContext, data: dict) -> None:
+async def aa_edit_answer(message: Message, state: FSMContext, **kwargs) -> None:
     answer = None if (message.text and message.text.strip() == "-") else message.text.strip()
     state_data = await state.get_data()
     aa_id = state_data.get("aa_id")
     new_keywords = state_data.get("new_keywords")
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     aa_service = AutoAnswerService(session)
     await aa_service.update(
         admin_id=message.from_user.id,
@@ -666,12 +668,12 @@ async def aa_edit_answer(message: Message, state: FSMContext, data: dict) -> Non
 # ── Статистика ─────────────────────────────────────────────────────
 
 @router.message(F.text == "📊 Статистика")
-async def show_statistics(message: Message, data: dict) -> None:
-    if not await _check_admin(data):
+async def show_statistics(message: Message, **kwargs) -> None:
+    if not _is_admin(**kwargs):
         await message.answer("Недостаточно прав для выполнения действия.")
         return
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     stats_service = StatisticsService(session)
     stats = await stats_service.get_statistics()
 
@@ -696,14 +698,14 @@ async def show_statistics(message: Message, data: dict) -> None:
 # ── Выгрузка ───────────────────────────────────────────────────────
 
 @router.message(F.text == "📤 Выгрузка")
-async def export_data(message: Message, data: dict) -> None:
-    if not await _check_admin(data):
+async def export_data(message: Message, **kwargs) -> None:
+    if not _is_admin(**kwargs):
         await message.answer("Недостаточно прав для выполнения действия.")
         return
 
     await message.answer("Выполняется выгрузка данных...")
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     export_service = ExportService(session)
     buffer = await export_service.export_tickets_to_excel(message.from_user.id)
 
@@ -721,12 +723,12 @@ async def export_data(message: Message, data: dict) -> None:
 # ── Настройки ──────────────────────────────────────────────────────
 
 @router.message(F.text == "⚙ Настройки")
-async def show_settings(message: Message, data: dict) -> None:
-    if not await _check_admin(data):
+async def show_settings(message: Message, **kwargs) -> None:
+    if not _is_admin(**kwargs):
         await message.answer("Недостаточно прав для выполнения действия.")
         return
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     audit_service = AuditService(session)
     await audit_service.log(
         user_id=message.from_user.id,

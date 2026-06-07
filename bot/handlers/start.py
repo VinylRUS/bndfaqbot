@@ -4,8 +4,10 @@ from aiogram import Router, F
 from aiogram.types import Message, Contact
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models.role import RoleEnum
+from database.models.user import User
 from services.user_service import UserService
 from bot.keyboards.common import (
     get_main_menu_user,
@@ -19,10 +21,10 @@ router = Router()
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext, data: dict) -> None:
+async def cmd_start(message: Message, state: FSMContext, **kwargs) -> None:
     await state.clear()
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     user_service = UserService(session)
     user = await user_service.register_or_update(
         telegram_id=message.from_user.id,
@@ -42,10 +44,10 @@ async def cmd_start(message: Message, state: FSMContext, data: dict) -> None:
 
 
 @router.message(F.contact)
-async def process_contact(message: Message, data: dict) -> None:
+async def process_contact(message: Message, **kwargs) -> None:
     contact: Contact = message.contact
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     user_service = UserService(session)
     user = await user_service.update_phone(
         telegram_id=message.from_user.id,
@@ -61,7 +63,7 @@ async def process_contact(message: Message, data: dict) -> None:
         )
 
 
-async def _send_main_menu(message: Message, user) -> None:
+async def _send_main_menu(message: Message, user: User) -> None:
     role = user.role.name if user.role else RoleEnum.USER
     if hasattr(role, "value"):
         role = RoleEnum(role.value)

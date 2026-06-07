@@ -3,9 +3,11 @@ from __future__ import annotations
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models.role import RoleEnum
 from database.models.ticket import TicketStatus
+from database.models.user import User
 from services.user_service import UserService
 from services.ticket_service import TicketService
 from services.faq_service import FAQService
@@ -36,14 +38,14 @@ router = Router()
 # ── Создать обращение ──────────────────────────────────────────────
 
 @router.message(F.text == "❓ Создать обращение")
-async def start_ticket_creation(message: Message, state: FSMContext, data: dict) -> None:
+async def start_ticket_creation(message: Message, state: FSMContext, **kwargs) -> None:
     # Use middleware-injected user if available
-    db_user = data.get("db_user")
+    db_user: User | None = kwargs.get("db_user")
     if not db_user:
         await message.answer("Пожалуйста, нажмите /start для регистрации.")
         return
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     cat_repo = CategoryRepository(session)
     categories = await cat_repo.get_roots()
 
@@ -59,10 +61,10 @@ async def start_ticket_creation(message: Message, state: FSMContext, data: dict)
 
 
 @router.callback_query(TicketCreation.selecting_category, F.data.startswith("cat_"))
-async def select_category(callback: CallbackQuery, state: FSMContext, data: dict) -> None:
+async def select_category(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     category_id = int(callback.data.split("_")[1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     cat_repo = CategoryRepository(session)
     topics = await cat_repo.get_topics(category_id)
     category = await cat_repo.get_by_id(category_id)
@@ -88,10 +90,10 @@ async def select_category(callback: CallbackQuery, state: FSMContext, data: dict
 
 
 @router.callback_query(TicketCreation.selecting_topic, F.data.startswith("topic_"))
-async def select_topic(callback: CallbackQuery, state: FSMContext, data: dict) -> None:
+async def select_topic(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     topic_id = int(callback.data.split("_")[1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     cat_repo = CategoryRepository(session)
     topic = await cat_repo.get_by_id(topic_id)
 
@@ -107,8 +109,8 @@ async def select_topic(callback: CallbackQuery, state: FSMContext, data: dict) -
 
 
 @router.callback_query(TicketCreation.selecting_category, F.data == "back_to_categories")
-async def back_to_categories(callback: CallbackQuery, state: FSMContext, data: dict) -> None:
-    session = data["db_session"]
+async def back_to_categories(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    session: AsyncSession = kwargs["db_session"]
     cat_repo = CategoryRepository(session)
     categories = await cat_repo.get_roots()
 
@@ -120,16 +122,16 @@ async def back_to_categories(callback: CallbackQuery, state: FSMContext, data: d
 
 
 @router.message(TicketCreation.entering_text, F.text == "❌ Отмена")
-async def cancel_ticket_creation(message: Message, state: FSMContext, data: dict) -> None:
+async def cancel_ticket_creation(message: Message, state: FSMContext, **kwargs) -> None:
     await state.clear()
     # Return the right menu based on role
-    user_role = data.get("user_role", RoleEnum.USER)
+    user_role: RoleEnum = kwargs.get("user_role", RoleEnum.USER)
     menu = _get_main_menu_by_role(user_role)
     await message.answer("Создание обращения отменено.", reply_markup=menu())
 
 
 @router.message(TicketCreation.entering_text)
-async def enter_ticket_text(message: Message, state: FSMContext, data: dict) -> None:
+async def enter_ticket_text(message: Message, state: FSMContext, **kwargs) -> None:
     if not message.text or len(message.text.strip()) < 3:
         await message.answer("Текст обращения слишком короткий. Попробуйте ещё раз.")
         return
@@ -137,7 +139,7 @@ async def enter_ticket_text(message: Message, state: FSMContext, data: dict) -> 
     state_data = await state.get_data()
     category_id = state_data.get("category_id")
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     ticket_service = TicketService(session)
     ticket = await ticket_service.create_ticket(
         author_id=message.from_user.id,
@@ -146,7 +148,7 @@ async def enter_ticket_text(message: Message, state: FSMContext, data: dict) -> 
     )
 
     await state.clear()
-    user_role = data.get("user_role", RoleEnum.USER)
+    user_role: RoleEnum = kwargs.get("user_role", RoleEnum.USER)
     menu = _get_main_menu_by_role(user_role)
     await message.answer(
         f"Ваше обращение #{ticket.number} создано!\n"
@@ -159,8 +161,8 @@ async def enter_ticket_text(message: Message, state: FSMContext, data: dict) -> 
 # ── FAQ ────────────────────────────────────────────────────────────
 
 @router.message(F.text == "📚 FAQ")
-async def show_faq_menu(message: Message, data: dict) -> None:
-    session = data["db_session"]
+async def show_faq_menu(message: Message, **kwargs) -> None:
+    session: AsyncSession = kwargs["db_session"]
     faq_service = FAQService(session)
     faqs = await faq_service.get_all_active()
 
@@ -172,10 +174,10 @@ async def show_faq_menu(message: Message, data: dict) -> None:
 
 
 @router.callback_query(F.data.startswith("faq_"))
-async def show_faq_answer(callback: CallbackQuery, data: dict) -> None:
+async def show_faq_answer(callback: CallbackQuery, **kwargs) -> None:
     faq_id = int(callback.data.split("_")[1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     faq_service = FAQService(session)
     faq = await faq_service.get_by_id(faq_id)
 
@@ -192,8 +194,8 @@ async def show_faq_answer(callback: CallbackQuery, data: dict) -> None:
 # ── Мои обращения ──────────────────────────────────────────────────
 
 @router.message(F.text == "📋 Мои обращения")
-async def show_my_tickets(message: Message, data: dict) -> None:
-    session = data["db_session"]
+async def show_my_tickets(message: Message, **kwargs) -> None:
+    session: AsyncSession = kwargs["db_session"]
     ticket_service = TicketService(session)
     tickets = await ticket_service.get_user_tickets(message.from_user.id)
 
@@ -208,10 +210,10 @@ async def show_my_tickets(message: Message, data: dict) -> None:
 
 
 @router.callback_query(F.data.startswith("my_ticket_"))
-async def show_ticket_detail(callback: CallbackQuery, data: dict) -> None:
+async def show_ticket_detail(callback: CallbackQuery, **kwargs) -> None:
     ticket_id = int(callback.data.split("_")[-1])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     ticket_service = TicketService(session)
     ticket = await ticket_service.get_by_id(ticket_id)
 
@@ -246,12 +248,12 @@ async def show_ticket_detail(callback: CallbackQuery, data: dict) -> None:
 # ── Оценка качества ────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("rate_"))
-async def rate_ticket(callback: CallbackQuery, data: dict) -> None:
+async def rate_ticket(callback: CallbackQuery, **kwargs) -> None:
     parts = callback.data.split("_")
     ticket_id = int(parts[1])
     score = int(parts[2])
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     rating_service = RatingService(session)
     ticket_service = TicketService(session)
 
@@ -285,20 +287,20 @@ async def rate_ticket(callback: CallbackQuery, data: dict) -> None:
 # ── Автоответ / создание тикета из автоответа ─────────────────────
 
 @router.callback_query(F.data == "auto_create_ticket")
-async def auto_create_ticket(callback: CallbackQuery, state: FSMContext, data: dict) -> None:
-    await start_ticket_creation(callback.message, state, data)
+async def auto_create_ticket(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
+    await start_ticket_creation(callback.message, state, **kwargs)
     await callback.answer()
 
 
 # ── Обработка текстовых сообщений (автоответы) ────────────────────
 
 @router.message(F.text, ~F.text.startswith("/"), ~F.text.startswith("❓"), ~F.text.startswith("📚"), ~F.text.startswith("📋"), ~F.text.startswith("📥"), ~F.text.startswith("🛠"), ~F.text.startswith("📜"), ~F.text.startswith("👥"), ~F.text.startswith("🤖"), ~F.text.startswith("📊"), ~F.text.startswith("📤"), ~F.text.startswith("⚙"), ~F.text.startswith("❌"))
-async def handle_free_text(message: Message, state: FSMContext, data: dict) -> None:
+async def handle_free_text(message: Message, state: FSMContext, **kwargs) -> None:
     current_state = await state.get_state()
     if current_state is not None:
         return
 
-    session = data["db_session"]
+    session: AsyncSession = kwargs["db_session"]
     auto_answer_service = AutoAnswerService(session)
     match = await auto_answer_service.find_match(message.text)
 
@@ -319,10 +321,10 @@ async def handle_free_text(message: Message, state: FSMContext, data: dict) -> N
 # ── Назад в меню ──────────────────────────────────────────────────
 
 @router.callback_query(F.data == "back_to_menu")
-async def back_to_menu(callback: CallbackQuery, state: FSMContext, data: dict) -> None:
+async def back_to_menu(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     await state.clear()
     # Use middleware-injected role — no extra DB query needed
-    user_role: RoleEnum = data.get("user_role", RoleEnum.USER)
+    user_role: RoleEnum = kwargs.get("user_role", RoleEnum.USER)
     menu = _get_main_menu_by_role(user_role)
 
     role_labels = {
