@@ -209,7 +209,7 @@ async def back_to_users(callback: CallbackQuery) -> None:
 
 # ── FAQ Management ─────────────────────────────────────────────────
 
-@router.message(F.text == "📚 FAQ")
+@router.message(F.text == "📚 Управление FAQ")
 async def admin_faq_menu(message: Message) -> None:
     if not await _check_admin(message):
         await message.answer("Недостаточно прав для выполнения действия.")

@@ -27,7 +27,7 @@ def get_main_menu_operator() -> ReplyKeyboardMarkup:
 
 def get_main_menu_admin() -> ReplyKeyboardMarkup:
     keyboard = [
-        [KeyboardButton(text="👥 Пользователи"), KeyboardButton(text="📚 FAQ")],
+        [KeyboardButton(text="👥 Пользователи"), KeyboardButton(text="📚 Управление FAQ")],
         [KeyboardButton(text="🤖 Автоответы"), KeyboardButton(text="📊 Статистика")],
         [KeyboardButton(text="📤 Выгрузка"), KeyboardButton(text="⚙ Настройки")],
     ]
