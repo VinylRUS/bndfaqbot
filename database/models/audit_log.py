@@ -28,8 +28,9 @@ class AuditLog(Base):
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
     )
 
+    # lazy="select" — no auto-cascade; audit logs don't need User graph
     user: Mapped[Optional["User"]] = relationship(
-        back_populates="audit_logs", foreign_keys=[user_id], lazy="selectin"
+        back_populates="audit_logs", foreign_keys=[user_id], lazy="select"
     )
 
     def __repr__(self) -> str:

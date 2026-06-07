@@ -24,9 +24,10 @@ class Rating(Base):
     )
     score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
 
-    ticket: Mapped["Ticket"] = relationship(back_populates="rating", lazy="selectin")
+    # lazy="select" — no auto-cascade
+    ticket: Mapped["Ticket"] = relationship(back_populates="rating", lazy="select")
     user: Mapped["User"] = relationship(
-        back_populates="ratings_given", foreign_keys=[user_id], lazy="selectin"
+        back_populates="ratings_given", foreign_keys=[user_id], lazy="select"
     )
 
     def __repr__(self) -> str:

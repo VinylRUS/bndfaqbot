@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from database.models.user import User
 from database.models.role import RoleEnum
@@ -23,16 +24,51 @@ class UserRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_all(self) -> list[User]:
-        result = await self.session.execute(select(User))
+    async def get_by_telegram_id_with_role(self, telegram_id: int) -> Optional[User]:
+        """Load User with Role only — lightweight, for middleware."""
+        stmt = (
+            select(User)
+            .where(User.telegram_id == telegram_id)
+            .options(selectinload(User.role))
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_all(self, limit: int = 100, offset: int = 0) -> list[User]:
+        """DB-level pagination — never load all users at once."""
+        stmt = (
+            select(User)
+            .options(selectinload(User.role))
+            .order_by(User.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_by_role(self, role_name: RoleEnum) -> list[User]:
+    async def count_all(self) -> int:
+        result = await self.session.execute(select(func.count(User.id)))
+        return result.scalar_one()
+
+    async def get_by_role(self, role_name: RoleEnum, limit: int = 100) -> list[User]:
+        from database.models.role import Role
+        stmt = (
+            select(User)
+            .join(Role)
+            .where(Role.name == role_name)
+            .options(selectinload(User.role))
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def count_by_role(self, role_name: RoleEnum) -> int:
+        """Count users by role without loading any User objects."""
         from database.models.role import Role
         result = await self.session.execute(
-            select(User).join(Role).where(Role.name == role_name)
+            select(func.count(User.id)).join(Role).where(Role.name == role_name)
         )
-        return list(result.scalars().all())
+        return result.scalar_one()
 
     async def create(
         self,
@@ -70,6 +106,5 @@ class UserRepository:
         return user
 
     async def count(self) -> int:
-        from sqlalchemy import func
         result = await self.session.execute(select(func.count(User.id)))
         return result.scalar_one()

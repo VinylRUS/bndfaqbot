@@ -6,9 +6,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 
 from database.models.role import RoleEnum
-from database.session import async_session_factory
 from services.user_service import UserService
-from services.audit_service import AuditService
 from bot.keyboards.common import (
     get_main_menu_user,
     get_main_menu_operator,
@@ -21,18 +19,17 @@ router = Router()
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext) -> None:
+async def cmd_start(message: Message, state: FSMContext, data: dict) -> None:
     await state.clear()
 
-    async with async_session_factory() as session:
-        user_service = UserService(session)
-        user = await user_service.register_or_update(
-            telegram_id=message.from_user.id,
-            username=message.from_user.username,
-            first_name=message.from_user.first_name,
-            last_name=message.from_user.last_name,
-        )
-        await session.commit()
+    session = data["db_session"]
+    user_service = UserService(session)
+    user = await user_service.register_or_update(
+        telegram_id=message.from_user.id,
+        username=message.from_user.username,
+        first_name=message.from_user.first_name,
+        last_name=message.from_user.last_name,
+    )
 
     if not user.phone:
         await message.answer(
@@ -45,16 +42,15 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
 
 
 @router.message(F.contact)
-async def process_contact(message: Message, state: FSMContext) -> None:
+async def process_contact(message: Message, data: dict) -> None:
     contact: Contact = message.contact
 
-    async with async_session_factory() as session:
-        user_service = UserService(session)
-        user = await user_service.update_phone(
-            telegram_id=message.from_user.id,
-            phone=contact.phone_number,
-        )
-        await session.commit()
+    session = data["db_session"]
+    user_service = UserService(session)
+    user = await user_service.update_phone(
+        telegram_id=message.from_user.id,
+        phone=contact.phone_number,
+    )
 
     if user:
         await message.answer("Номер телефона сохранён. Регистрация завершена!")

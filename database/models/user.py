@@ -29,18 +29,19 @@ class User(Base):
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
     )
 
-    role: Mapped["Role"] = relationship(back_populates="users", lazy="selectin")
+    # lazy="select" — loaded on demand only, no auto-cascade
+    role: Mapped["Role"] = relationship(back_populates="users", lazy="select")
     tickets: Mapped[list["Ticket"]] = relationship(
-        back_populates="author", foreign_keys="Ticket.author_id", lazy="selectin"
+        back_populates="author", foreign_keys="Ticket.author_id", lazy="select"
     )
     assigned_tickets: Mapped[list["Ticket"]] = relationship(
-        back_populates="operator", foreign_keys="Ticket.operator_id", lazy="selectin"
+        back_populates="operator", foreign_keys="Ticket.operator_id", lazy="select"
     )
     ratings_given: Mapped[list["Rating"]] = relationship(
-        back_populates="user", foreign_keys="Rating.user_id", lazy="selectin"
+        back_populates="user", foreign_keys="Rating.user_id", lazy="select"
     )
     audit_logs: Mapped[list["AuditLog"]] = relationship(
-        back_populates="user", foreign_keys="AuditLog.user_id", lazy="selectin"
+        back_populates="user", foreign_keys="AuditLog.user_id", lazy="select"
     )
 
     @property

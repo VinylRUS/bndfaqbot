@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models.rating import Rating
@@ -24,6 +24,13 @@ class RatingRepository:
         )
         return result.scalar_one_or_none()
 
+    async def has_rated(self, ticket_id: int) -> bool:
+        """Check existence with EXISTS — no object loading."""
+        result = await self.session.execute(
+            select(func.exists().where(Rating.ticket_id == ticket_id))
+        )
+        return result.scalar_one()
+
     async def get_average_score(self) -> Optional[float]:
         result = await self.session.execute(select(func.avg(Rating.score)))
         return result.scalar_one_or_none()
@@ -36,3 +43,7 @@ class RatingRepository:
             .where(Ticket.operator_id == operator_id)
         )
         return result.scalar_one_or_none()
+
+    async def count(self) -> int:
+        result = await self.session.execute(select(func.count(Rating.id)))
+        return result.scalar_one()

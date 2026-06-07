@@ -63,9 +63,9 @@ def get_faq_keyboard(faqs: list) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_auto_answer_reply_keyboard(ticket_id: int) -> InlineKeyboardMarkup:
+def get_auto_answer_reply_keyboard() -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text="❓ Создать обращение", callback_data=f"auto_create_ticket_{ticket_id}")],
+        [InlineKeyboardButton(text="❓ Создать обращение", callback_data="auto_create_ticket")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

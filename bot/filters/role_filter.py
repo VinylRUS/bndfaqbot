@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Union
+from typing import Any, Dict, Union
 
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import BaseFilter
@@ -9,33 +9,22 @@ from database.models.role import RoleEnum
 
 
 class RoleFilter(BaseFilter):
+    """Filter that checks user role from middleware-injected data["user_role"]."""
+
     def __init__(self, roles: Union[RoleEnum, list[RoleEnum]]) -> None:
         if isinstance(roles, RoleEnum):
             self.roles = [roles]
         else:
             self.roles = roles
 
-    async def __call__(self, event: Union[Message, CallbackQuery]) -> bool:
-        user = getattr(event, "user", None)
-        if user is None and hasattr(event, "from_user"):
-            user_data = event.from_user
-        else:
-            user_data = user
-
-        if not hasattr(event, "from_user") and not hasattr(event, "user"):
+    async def __call__(
+        self,
+        event: Union[Message, CallbackQuery],
+        data: Dict[str, Any],
+    ) -> bool:
+        user_role: RoleEnum | None = data.get("user_role")
+        if user_role is None:
             return False
-
-        from_user = getattr(event, "from_user", None)
-        if from_user is None:
-            return False
-
-        db_user = getattr(event, "db_user", None)
-        if db_user is None:
-            return False
-
-        user_role = db_user.role.name if db_user.role else RoleEnum.USER
-        if hasattr(user_role, "value"):
-            user_role = RoleEnum(user_role.value)
         return user_role in self.roles
 
 

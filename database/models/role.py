@@ -24,7 +24,8 @@ class Role(Base):
         nullable=False,
     )
 
-    users: Mapped[list["User"]] = relationship(back_populates="role", lazy="selectin")
+    # lazy="select" — don't auto-load all users when loading a Role
+    users: Mapped[list["User"]] = relationship(back_populates="role", lazy="select")
 
     def __repr__(self) -> str:
         return f"<Role id={self.id} name={self.name}>"

@@ -32,6 +32,10 @@ class TicketService:
         return ticket
 
     async def get_by_id(self, ticket_id: int) -> Optional[Ticket]:
+        return await self.ticket_repo.get_by_id_full(ticket_id)
+
+    async def get_by_id_lightweight(self, ticket_id: int) -> Optional[Ticket]:
+        """For simple status checks — no eager loading."""
         return await self.ticket_repo.get_by_id(ticket_id)
 
     async def get_by_number(self, number: int) -> Optional[Ticket]:

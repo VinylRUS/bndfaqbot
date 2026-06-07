@@ -49,17 +49,18 @@ class Ticket(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # lazy="select" — loaded on demand only, no auto-cascade
     author: Mapped["User"] = relationship(
-        back_populates="tickets", foreign_keys=[author_id], lazy="selectin"
+        back_populates="tickets", foreign_keys=[author_id], lazy="select"
     )
     operator: Mapped[Optional["User"]] = relationship(
-        back_populates="assigned_tickets", foreign_keys=[operator_id], lazy="selectin"
+        back_populates="assigned_tickets", foreign_keys=[operator_id], lazy="select"
     )
-    category: Mapped["Category"] = relationship(back_populates="tickets", lazy="selectin")
+    category: Mapped["Category"] = relationship(back_populates="tickets", lazy="select")
     messages: Mapped[list["TicketMessage"]] = relationship(
-        back_populates="ticket", lazy="selectin", order_by="TicketMessage.created_at"
+        back_populates="ticket", lazy="select", order_by="TicketMessage.created_at"
     )
-    rating: Mapped[Optional["Rating"]] = relationship(back_populates="ticket", lazy="selectin")
+    rating: Mapped[Optional["Rating"]] = relationship(back_populates="ticket", lazy="select")
 
     def __repr__(self) -> str:
         return f"<Ticket id={self.id} number={self.number} status={self.status}>"

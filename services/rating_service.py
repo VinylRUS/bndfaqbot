@@ -28,5 +28,4 @@ class RatingService:
         return await self.rating_repo.get_average_by_operator(operator_id)
 
     async def has_rated(self, ticket_id: int) -> bool:
-        rating = await self.rating_repo.get_by_ticket(ticket_id)
-        return rating is not None
+        return await self.rating_repo.has_rated(ticket_id)

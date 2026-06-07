@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.fsm.context import FSMContext
 
 from database.models.role import RoleEnum
-from database.session import async_session_factory
 from services.user_service import UserService
 from services.faq_service import FAQService
 from services.auto_answer_service import AutoAnswerService
@@ -14,7 +13,6 @@ from services.export_service import ExportService
 from services.audit_service import AuditService
 from bot.states.faq_states import FAQManagement
 from bot.states.auto_answer_states import AutoAnswerManagement
-from bot.states.settings_states import SettingsStates
 from bot.keyboards.common import get_main_menu_admin, get_cancel_keyboard
 from bot.keyboards.admin import (
     get_users_keyboard,
@@ -36,53 +34,46 @@ router = Router()
 
 # ── Проверка прав администратора ───────────────────────────────────
 
-async def _check_admin(message_or_callback) -> bool:
-    from_user = getattr(message_or_callback, "from_user", None)
-    if not from_user:
-        return False
-
-    async with async_session_factory() as session:
-        user_service = UserService(session)
-        user = await user_service.get_by_telegram_id(from_user.id)
-        await session.commit()
-
-    if not user or not user.role:
-        return False
-
-    role = user.role.name
-    if hasattr(role, "value"):
-        role = RoleEnum(role.value)
-
-    return is_admin(role)
+async def _check_admin(data: dict) -> bool:
+    """Check admin role from middleware-injected data (no extra DB query)."""
+    user_role: RoleEnum | None = data.get("user_role")
+    return user_role is not None and is_admin(user_role)
 
 
-async def _check_admin_with_log(callback: CallbackQuery) -> bool:
-    result = await _check_admin(callback)
-    if not result:
-        await callback.answer("Недостаточно прав для выполнения действия.", show_alert=True)
-        async with async_session_factory() as session:
+async def _check_admin_and_reply(message_or_callback, data: dict) -> bool:
+    """Check admin + send error message + log unauthorized access."""
+    if await _check_admin(data):
+        return True
+
+    session = data.get("db_session")
+    if isinstance(message_or_callback, CallbackQuery):
+        await message_or_callback.answer(
+            "Недостаточно прав для выполнения действия.", show_alert=True
+        )
+        if session:
             audit_service = AuditService(session)
             await audit_service.log_unauthorized_access(
-                user_id=callback.from_user.id,
+                user_id=message_or_callback.from_user.id,
                 role=None,
-                action=callback.data or "admin_action",
+                action=message_or_callback.data or "admin_action",
             )
-            await session.commit()
-    return result
+    else:
+        await message_or_callback.answer("Недостаточно прав для выполнения действия.")
+    return False
 
 
 # ── Пользователи ───────────────────────────────────────────────────
 
 @router.message(F.text == "👥 Пользователи")
-async def show_users(message: Message) -> None:
-    if not await _check_admin(message):
+async def show_users(message: Message, data: dict) -> None:
+    if not await _check_admin(data):
         await message.answer("Недостаточно прав для выполнения действия.")
         return
 
-    async with async_session_factory() as session:
-        user_service = UserService(session)
-        users = await user_service.get_all_users()
-        await session.commit()
+    session = data["db_session"]
+    user_service = UserService(session)
+    users = await user_service.get_all_users(limit=10, offset=0)
+    total = await user_service.count_users()
 
     if not users:
         await message.answer("Пользователи не найдены.")
@@ -90,40 +81,40 @@ async def show_users(message: Message) -> None:
 
     await message.answer(
         "👥 Список пользователей:",
-        reply_markup=get_users_keyboard(users),
+        reply_markup=get_users_keyboard(users, total=total),
     )
 
 
 @router.callback_query(F.data.startswith("users_page_"))
-async def users_page(callback: CallbackQuery) -> None:
-    if not await _check_admin_with_log(callback):
+async def users_page(callback: CallbackQuery, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
     page = int(callback.data.split("_")[-1])
+    per_page = 10
 
-    async with async_session_factory() as session:
-        user_service = UserService(session)
-        users = await user_service.get_all_users()
-        await session.commit()
+    session = data["db_session"]
+    user_service = UserService(session)
+    users = await user_service.get_all_users(limit=per_page, offset=page * per_page)
+    total = await user_service.count_users()
 
     await callback.message.edit_text(
         "👥 Список пользователей:",
-        reply_markup=get_users_keyboard(users, page=page),
+        reply_markup=get_users_keyboard(users, page=page, total=total),
     )
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("admin_user_"))
-async def admin_view_user(callback: CallbackQuery) -> None:
-    if not await _check_admin_with_log(callback):
+async def admin_view_user(callback: CallbackQuery, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
     user_id = int(callback.data.split("_")[-1])
 
-    async with async_session_factory() as session:
-        user_service = UserService(session)
-        user = await user_service.get_by_id(user_id)
-        await session.commit()
+    session = data["db_session"]
+    user_service = UserService(session)
+    user = await user_service.get_by_id(user_id)
 
     if not user:
         await callback.answer("Пользователь не найден.")
@@ -150,8 +141,8 @@ async def admin_view_user(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("set_role_"))
-async def set_role(callback: CallbackQuery) -> None:
-    if not await _check_admin_with_log(callback):
+async def set_role(callback: CallbackQuery, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
     parts = callback.data.split("_")
@@ -169,14 +160,13 @@ async def set_role(callback: CallbackQuery) -> None:
         await callback.answer("Неизвестная роль.")
         return
 
-    async with async_session_factory() as session:
-        user_service = UserService(session)
-        user = await user_service.change_role(
-            admin_telegram_id=callback.from_user.id,
-            target_user_id=user_id,
-            new_role=new_role,
-        )
-        await session.commit()
+    session = data["db_session"]
+    user_service = UserService(session)
+    user = await user_service.change_role(
+        admin_telegram_id=callback.from_user.id,
+        target_user_id=user_id,
+        new_role=new_role,
+    )
 
     if not user:
         await callback.answer("Пользователь не найден.", show_alert=True)
@@ -191,18 +181,18 @@ async def set_role(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "back_to_users")
-async def back_to_users(callback: CallbackQuery) -> None:
-    if not await _check_admin_with_log(callback):
+async def back_to_users(callback: CallbackQuery, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
-    async with async_session_factory() as session:
-        user_service = UserService(session)
-        users = await user_service.get_all_users()
-        await session.commit()
+    session = data["db_session"]
+    user_service = UserService(session)
+    users = await user_service.get_all_users(limit=10, offset=0)
+    total = await user_service.count_users()
 
     await callback.message.edit_text(
         "👥 Список пользователей:",
-        reply_markup=get_users_keyboard(users),
+        reply_markup=get_users_keyboard(users, total=total),
     )
     await callback.answer()
 
@@ -210,8 +200,8 @@ async def back_to_users(callback: CallbackQuery) -> None:
 # ── FAQ Management ─────────────────────────────────────────────────
 
 @router.message(F.text == "📚 Управление FAQ")
-async def admin_faq_menu(message: Message) -> None:
-    if not await _check_admin(message):
+async def admin_faq_menu(message: Message, data: dict) -> None:
+    if not await _check_admin(data):
         await message.answer("Недостаточно прав для выполнения действия.")
         return
 
@@ -222,8 +212,8 @@ async def admin_faq_menu(message: Message) -> None:
 
 
 @router.callback_query(F.data == "admin_faq_menu")
-async def admin_faq_menu_callback(callback: CallbackQuery) -> None:
-    if not await _check_admin_with_log(callback):
+async def admin_faq_menu_callback(callback: CallbackQuery, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
     await callback.message.edit_text(
@@ -234,14 +224,13 @@ async def admin_faq_menu_callback(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "admin_faq_list")
-async def admin_faq_list(callback: CallbackQuery) -> None:
-    if not await _check_admin_with_log(callback):
+async def admin_faq_list(callback: CallbackQuery, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
-    async with async_session_factory() as session:
-        faq_service = FAQService(session)
-        faqs = await faq_service.get_all()
-        await session.commit()
+    session = data["db_session"]
+    faq_service = FAQService(session)
+    faqs = await faq_service.get_all()
 
     if not faqs:
         await callback.message.edit_text("FAQ пуст.", reply_markup=None)
@@ -256,16 +245,15 @@ async def admin_faq_list(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("admin_faq_") and ~F.data.startswith("admin_faq_menu") and ~F.data.startswith("admin_faq_list") and ~F.data.startswith("admin_faq_add") and ~F.data.startswith("admin_faq_edit") and ~F.data.startswith("admin_faq_toggle") and ~F.data.startswith("admin_faq_del"))
-async def admin_faq_detail(callback: CallbackQuery) -> None:
-    if not await _check_admin_with_log(callback):
+async def admin_faq_detail(callback: CallbackQuery, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
     faq_id = int(callback.data.split("_")[-1])
 
-    async with async_session_factory() as session:
-        faq_service = FAQService(session)
-        faq = await faq_service.get_by_id(faq_id)
-        await session.commit()
+    session = data["db_session"]
+    faq_service = FAQService(session)
+    faq = await faq_service.get_by_id(faq_id)
 
     if not faq:
         await callback.answer("FAQ не найден.")
@@ -286,8 +274,8 @@ async def admin_faq_detail(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "admin_faq_add")
-async def admin_faq_add(callback: CallbackQuery, state: FSMContext) -> None:
-    if not await _check_admin_with_log(callback):
+async def admin_faq_add(callback: CallbackQuery, state: FSMContext, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
     await state.set_state(FAQManagement.waiting_question)
@@ -305,7 +293,7 @@ async def cancel_faq_add(message: Message, state: FSMContext) -> None:
 
 
 @router.message(FAQManagement.waiting_question)
-async def faq_enter_question(message: Message, state: FSMContext) -> None:
+async def faq_enter_question(message: Message, state: FSMContext, data: dict) -> None:
     if not message.text or len(message.text.strip()) < 3:
         await message.answer("Вопрос слишком короткий. Попробуйте ещё раз.")
         return
@@ -316,22 +304,21 @@ async def faq_enter_question(message: Message, state: FSMContext) -> None:
 
 
 @router.message(FAQManagement.waiting_answer)
-async def faq_enter_answer(message: Message, state: FSMContext) -> None:
+async def faq_enter_answer(message: Message, state: FSMContext, data: dict) -> None:
     if not message.text or len(message.text.strip()) < 3:
         await message.answer("Ответ слишком короткий. Попробуйте ещё раз.")
         return
 
-    data = await state.get_data()
-    question = data.get("question")
+    state_data = await state.get_data()
+    question = state_data.get("question")
 
-    async with async_session_factory() as session:
-        faq_service = FAQService(session)
-        await faq_service.create(
-            admin_id=message.from_user.id,
-            question=question,
-            answer=message.text.strip(),
-        )
-        await session.commit()
+    session = data["db_session"]
+    faq_service = FAQService(session)
+    await faq_service.create(
+        admin_id=message.from_user.id,
+        question=question,
+        answer=message.text.strip(),
+    )
 
     await state.clear()
     await message.answer(
@@ -341,16 +328,15 @@ async def faq_enter_answer(message: Message, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data.startswith("admin_faq_toggle_"))
-async def admin_faq_toggle(callback: CallbackQuery) -> None:
-    if not await _check_admin_with_log(callback):
+async def admin_faq_toggle(callback: CallbackQuery, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
     faq_id = int(callback.data.split("_")[-1])
 
-    async with async_session_factory() as session:
-        faq_service = FAQService(session)
-        faq = await faq_service.toggle_active(callback.from_user.id, faq_id)
-        await session.commit()
+    session = data["db_session"]
+    faq_service = FAQService(session)
+    faq = await faq_service.toggle_active(callback.from_user.id, faq_id)
 
     if not faq:
         await callback.answer("FAQ не найден.")
@@ -361,16 +347,15 @@ async def admin_faq_toggle(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("admin_faq_del_"))
-async def admin_faq_delete(callback: CallbackQuery) -> None:
-    if not await _check_admin_with_log(callback):
+async def admin_faq_delete(callback: CallbackQuery, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
     faq_id = int(callback.data.split("_")[-1])
 
-    async with async_session_factory() as session:
-        faq_service = FAQService(session)
-        deleted = await faq_service.delete(callback.from_user.id, faq_id)
-        await session.commit()
+    session = data["db_session"]
+    faq_service = FAQService(session)
+    deleted = await faq_service.delete(callback.from_user.id, faq_id)
 
     if deleted:
         await callback.message.edit_text("FAQ удалён.")
@@ -380,16 +365,15 @@ async def admin_faq_delete(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("admin_faq_edit_"))
-async def admin_faq_edit(callback: CallbackQuery, state: FSMContext) -> None:
-    if not await _check_admin_with_log(callback):
+async def admin_faq_edit(callback: CallbackQuery, state: FSMContext, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
     faq_id = int(callback.data.split("_")[-1])
 
-    async with async_session_factory() as session:
-        faq_service = FAQService(session)
-        faq = await faq_service.get_by_id(faq_id)
-        await session.commit()
+    session = data["db_session"]
+    faq_service = FAQService(session)
+    faq = await faq_service.get_by_id(faq_id)
 
     if not faq:
         await callback.answer("FAQ не найден.")
@@ -411,16 +395,15 @@ async def cancel_faq_edit(message: Message, state: FSMContext) -> None:
 
 
 @router.message(FAQManagement.waiting_edit_question)
-async def faq_edit_question(message: Message, state: FSMContext) -> None:
+async def faq_edit_question(message: Message, state: FSMContext, data: dict) -> None:
     question = None if (message.text and message.text.strip() == "-") else message.text.strip()
     await state.update_data(new_question=question)
     await state.set_state(FAQManagement.waiting_edit_answer)
 
-    async with async_session_factory() as session:
-        data = await state.get_data()
-        faq_service = FAQService(session)
-        faq = await faq_service.get_by_id(data["faq_id"])
-        await session.commit()
+    state_data = await state.get_data()
+    session = data["db_session"]
+    faq_service = FAQService(session)
+    faq = await faq_service.get_by_id(state_data["faq_id"])
 
     await message.answer(
         f"Текущий ответ:\n{faq.answer}\n\nВведите новый ответ (или отправьте '-' чтобы оставить текущий):",
@@ -428,21 +411,20 @@ async def faq_edit_question(message: Message, state: FSMContext) -> None:
 
 
 @router.message(FAQManagement.waiting_edit_answer)
-async def faq_edit_answer(message: Message, state: FSMContext) -> None:
+async def faq_edit_answer(message: Message, state: FSMContext, data: dict) -> None:
     answer = None if (message.text and message.text.strip() == "-") else message.text.strip()
-    data = await state.get_data()
-    faq_id = data.get("faq_id")
-    new_question = data.get("new_question")
+    state_data = await state.get_data()
+    faq_id = state_data.get("faq_id")
+    new_question = state_data.get("new_question")
 
-    async with async_session_factory() as session:
-        faq_service = FAQService(session)
-        await faq_service.update(
-            admin_id=message.from_user.id,
-            faq_id=faq_id,
-            question=new_question,
-            answer=answer,
-        )
-        await session.commit()
+    session = data["db_session"]
+    faq_service = FAQService(session)
+    await faq_service.update(
+        admin_id=message.from_user.id,
+        faq_id=faq_id,
+        question=new_question,
+        answer=answer,
+    )
 
     await state.clear()
     await message.answer("FAQ обновлён!", reply_markup=get_main_menu_admin())
@@ -451,8 +433,8 @@ async def faq_edit_answer(message: Message, state: FSMContext) -> None:
 # ── Автоответы Management ──────────────────────────────────────────
 
 @router.message(F.text == "🤖 Автоответы")
-async def admin_auto_answer_menu(message: Message) -> None:
-    if not await _check_admin(message):
+async def admin_auto_answer_menu(message: Message, data: dict) -> None:
+    if not await _check_admin(data):
         await message.answer("Недостаточно прав для выполнения действия.")
         return
 
@@ -463,8 +445,8 @@ async def admin_auto_answer_menu(message: Message) -> None:
 
 
 @router.callback_query(F.data == "admin_aa_menu")
-async def admin_aa_menu_callback(callback: CallbackQuery) -> None:
-    if not await _check_admin_with_log(callback):
+async def admin_aa_menu_callback(callback: CallbackQuery, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
     await callback.message.edit_text(
@@ -475,14 +457,13 @@ async def admin_aa_menu_callback(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "admin_aa_list")
-async def admin_aa_list(callback: CallbackQuery) -> None:
-    if not await _check_admin_with_log(callback):
+async def admin_aa_list(callback: CallbackQuery, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
-    async with async_session_factory() as session:
-        aa_service = AutoAnswerService(session)
-        auto_answers = await aa_service.get_all()
-        await session.commit()
+    session = data["db_session"]
+    aa_service = AutoAnswerService(session)
+    auto_answers = await aa_service.get_all()
 
     if not auto_answers:
         await callback.message.edit_text("Список автоответов пуст.", reply_markup=None)
@@ -497,16 +478,15 @@ async def admin_aa_list(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("admin_aa_") and ~F.data.startswith("admin_aa_menu") and ~F.data.startswith("admin_aa_list") and ~F.data.startswith("admin_aa_add") and ~F.data.startswith("admin_aa_edit") and ~F.data.startswith("admin_aa_toggle") and ~F.data.startswith("admin_aa_del"))
-async def admin_aa_detail(callback: CallbackQuery) -> None:
-    if not await _check_admin_with_log(callback):
+async def admin_aa_detail(callback: CallbackQuery, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
     aa_id = int(callback.data.split("_")[-1])
 
-    async with async_session_factory() as session:
-        aa_service = AutoAnswerService(session)
-        aa = await aa_service.get_by_id(aa_id)
-        await session.commit()
+    session = data["db_session"]
+    aa_service = AutoAnswerService(session)
+    aa = await aa_service.get_by_id(aa_id)
 
     if not aa:
         await callback.answer("Автоответ не найден.")
@@ -527,8 +507,8 @@ async def admin_aa_detail(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "admin_aa_add")
-async def admin_aa_add(callback: CallbackQuery, state: FSMContext) -> None:
-    if not await _check_admin_with_log(callback):
+async def admin_aa_add(callback: CallbackQuery, state: FSMContext, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
     await state.set_state(AutoAnswerManagement.waiting_keywords)
@@ -546,7 +526,7 @@ async def cancel_aa_add(message: Message, state: FSMContext) -> None:
 
 
 @router.message(AutoAnswerManagement.waiting_keywords)
-async def aa_enter_keywords(message: Message, state: FSMContext) -> None:
+async def aa_enter_keywords(message: Message, state: FSMContext, data: dict) -> None:
     if not message.text or len(message.text.strip()) < 2:
         await message.answer("Ключевые слова слишком короткие. Попробуйте ещё раз.")
         return
@@ -557,22 +537,21 @@ async def aa_enter_keywords(message: Message, state: FSMContext) -> None:
 
 
 @router.message(AutoAnswerManagement.waiting_answer)
-async def aa_enter_answer(message: Message, state: FSMContext) -> None:
+async def aa_enter_answer(message: Message, state: FSMContext, data: dict) -> None:
     if not message.text or len(message.text.strip()) < 3:
         await message.answer("Ответ слишком короткий. Попробуйте ещё раз.")
         return
 
-    data = await state.get_data()
-    keywords = data.get("keywords")
+    state_data = await state.get_data()
+    keywords = state_data.get("keywords")
 
-    async with async_session_factory() as session:
-        aa_service = AutoAnswerService(session)
-        await aa_service.create(
-            admin_id=message.from_user.id,
-            keywords=keywords,
-            answer=message.text.strip(),
-        )
-        await session.commit()
+    session = data["db_session"]
+    aa_service = AutoAnswerService(session)
+    await aa_service.create(
+        admin_id=message.from_user.id,
+        keywords=keywords,
+        answer=message.text.strip(),
+    )
 
     await state.clear()
     await message.answer(
@@ -582,16 +561,15 @@ async def aa_enter_answer(message: Message, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data.startswith("admin_aa_toggle_"))
-async def admin_aa_toggle(callback: CallbackQuery) -> None:
-    if not await _check_admin_with_log(callback):
+async def admin_aa_toggle(callback: CallbackQuery, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
     aa_id = int(callback.data.split("_")[-1])
 
-    async with async_session_factory() as session:
-        aa_service = AutoAnswerService(session)
-        aa = await aa_service.toggle_active(callback.from_user.id, aa_id)
-        await session.commit()
+    session = data["db_session"]
+    aa_service = AutoAnswerService(session)
+    aa = await aa_service.toggle_active(callback.from_user.id, aa_id)
 
     if not aa:
         await callback.answer("Автоответ не найден.")
@@ -602,16 +580,15 @@ async def admin_aa_toggle(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("admin_aa_del_"))
-async def admin_aa_delete(callback: CallbackQuery) -> None:
-    if not await _check_admin_with_log(callback):
+async def admin_aa_delete(callback: CallbackQuery, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
     aa_id = int(callback.data.split("_")[-1])
 
-    async with async_session_factory() as session:
-        aa_service = AutoAnswerService(session)
-        deleted = await aa_service.delete(callback.from_user.id, aa_id)
-        await session.commit()
+    session = data["db_session"]
+    aa_service = AutoAnswerService(session)
+    deleted = await aa_service.delete(callback.from_user.id, aa_id)
 
     if deleted:
         await callback.message.edit_text("Автоответ удалён.")
@@ -621,16 +598,15 @@ async def admin_aa_delete(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("admin_aa_edit_"))
-async def admin_aa_edit(callback: CallbackQuery, state: FSMContext) -> None:
-    if not await _check_admin_with_log(callback):
+async def admin_aa_edit(callback: CallbackQuery, state: FSMContext, data: dict) -> None:
+    if not await _check_admin_and_reply(callback, data):
         return
 
     aa_id = int(callback.data.split("_")[-1])
 
-    async with async_session_factory() as session:
-        aa_service = AutoAnswerService(session)
-        aa = await aa_service.get_by_id(aa_id)
-        await session.commit()
+    session = data["db_session"]
+    aa_service = AutoAnswerService(session)
+    aa = await aa_service.get_by_id(aa_id)
 
     if not aa:
         await callback.answer("Автоответ не найден.")
@@ -652,16 +628,15 @@ async def cancel_aa_edit(message: Message, state: FSMContext) -> None:
 
 
 @router.message(AutoAnswerManagement.waiting_edit_keywords)
-async def aa_edit_keywords(message: Message, state: FSMContext) -> None:
+async def aa_edit_keywords(message: Message, state: FSMContext, data: dict) -> None:
     keywords = None if (message.text and message.text.strip() == "-") else message.text.strip()
     await state.update_data(new_keywords=keywords)
     await state.set_state(AutoAnswerManagement.waiting_edit_answer)
 
-    async with async_session_factory() as session:
-        data = await state.get_data()
-        aa_service = AutoAnswerService(session)
-        aa = await aa_service.get_by_id(data["aa_id"])
-        await session.commit()
+    state_data = await state.get_data()
+    session = data["db_session"]
+    aa_service = AutoAnswerService(session)
+    aa = await aa_service.get_by_id(state_data["aa_id"])
 
     await message.answer(
         f"Текущий ответ:\n{aa.answer}\n\nВведите новый ответ (или '-' чтобы оставить текущий):",
@@ -669,21 +644,20 @@ async def aa_edit_keywords(message: Message, state: FSMContext) -> None:
 
 
 @router.message(AutoAnswerManagement.waiting_edit_answer)
-async def aa_edit_answer(message: Message, state: FSMContext) -> None:
+async def aa_edit_answer(message: Message, state: FSMContext, data: dict) -> None:
     answer = None if (message.text and message.text.strip() == "-") else message.text.strip()
-    data = await state.get_data()
-    aa_id = data.get("aa_id")
-    new_keywords = data.get("new_keywords")
+    state_data = await state.get_data()
+    aa_id = state_data.get("aa_id")
+    new_keywords = state_data.get("new_keywords")
 
-    async with async_session_factory() as session:
-        aa_service = AutoAnswerService(session)
-        await aa_service.update(
-            admin_id=message.from_user.id,
-            auto_answer_id=aa_id,
-            keywords=new_keywords,
-            answer=answer,
-        )
-        await session.commit()
+    session = data["db_session"]
+    aa_service = AutoAnswerService(session)
+    await aa_service.update(
+        admin_id=message.from_user.id,
+        auto_answer_id=aa_id,
+        keywords=new_keywords,
+        answer=answer,
+    )
 
     await state.clear()
     await message.answer("Автоответ обновлён!", reply_markup=get_main_menu_admin())
@@ -692,15 +666,14 @@ async def aa_edit_answer(message: Message, state: FSMContext) -> None:
 # ── Статистика ─────────────────────────────────────────────────────
 
 @router.message(F.text == "📊 Статистика")
-async def show_statistics(message: Message) -> None:
-    if not await _check_admin(message):
+async def show_statistics(message: Message, data: dict) -> None:
+    if not await _check_admin(data):
         await message.answer("Недостаточно прав для выполнения действия.")
         return
 
-    async with async_session_factory() as session:
-        stats_service = StatisticsService(session)
-        stats = await stats_service.get_statistics()
-        await session.commit()
+    session = data["db_session"]
+    stats_service = StatisticsService(session)
+    stats = await stats_service.get_statistics()
 
     text = (
         "📊 <b>Статистика системы</b>\n\n"
@@ -723,17 +696,16 @@ async def show_statistics(message: Message) -> None:
 # ── Выгрузка ───────────────────────────────────────────────────────
 
 @router.message(F.text == "📤 Выгрузка")
-async def export_data(message: Message) -> None:
-    if not await _check_admin(message):
+async def export_data(message: Message, data: dict) -> None:
+    if not await _check_admin(data):
         await message.answer("Недостаточно прав для выполнения действия.")
         return
 
     await message.answer("Выполняется выгрузка данных...")
 
-    async with async_session_factory() as session:
-        export_service = ExportService(session)
-        buffer = await export_service.export_tickets_to_excel(message.from_user.id)
-        await session.commit()
+    session = data["db_session"]
+    export_service = ExportService(session)
+    buffer = await export_service.export_tickets_to_excel(message.from_user.id)
 
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
         tmp.write(buffer.getvalue())
@@ -749,20 +721,19 @@ async def export_data(message: Message) -> None:
 # ── Настройки ──────────────────────────────────────────────────────
 
 @router.message(F.text == "⚙ Настройки")
-async def show_settings(message: Message) -> None:
-    if not await _check_admin(message):
+async def show_settings(message: Message, data: dict) -> None:
+    if not await _check_admin(data):
         await message.answer("Недостаточно прав для выполнения действия.")
         return
 
-    async with async_session_factory() as session:
-        audit_service = AuditService(session)
-        await audit_service.log(
-            user_id=message.from_user.id,
-            role="admin",
-            action="enter_settings",
-            object_type="system",
-        )
-        await session.commit()
+    session = data["db_session"]
+    audit_service = AuditService(session)
+    await audit_service.log(
+        user_id=message.from_user.id,
+        role="admin",
+        action="enter_settings",
+        object_type="system",
+    )
 
     text = (
         "⚙ <b>Настройки</b>\n\n"

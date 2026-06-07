@@ -26,8 +26,9 @@ class TicketMessage(Base):
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
     )
 
-    ticket: Mapped["Ticket"] = relationship(back_populates="messages", lazy="selectin")
-    sender: Mapped["User"] = relationship(lazy="selectin")
+    # lazy="select" — no auto-cascade, avoids circular reference explosion
+    ticket: Mapped["Ticket"] = relationship(back_populates="messages", lazy="select")
+    sender: Mapped["User"] = relationship(lazy="select")
 
     def __repr__(self) -> str:
         return f"<TicketMessage id={self.id} ticket_id={self.ticket_id}>"

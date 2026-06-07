@@ -3,13 +3,12 @@ from __future__ import annotations
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-def get_users_keyboard(users: list, page: int = 0, per_page: int = 10) -> InlineKeyboardMarkup:
+def get_users_keyboard(
+    users: list, page: int = 0, per_page: int = 10, total: int = 0
+) -> InlineKeyboardMarkup:
     buttons = []
-    start = page * per_page
-    end = start + per_page
-    page_users = users[start:end]
 
-    for user in page_users:
+    for user in users:
         role_name = _role_display(user.role)
         display = f"{user.display_name} [{role_name}]"
         buttons.append(
@@ -19,7 +18,7 @@ def get_users_keyboard(users: list, page: int = 0, per_page: int = 10) -> Inline
     nav = []
     if page > 0:
         nav.append(InlineKeyboardButton(text="⬅ Назад", callback_data=f"users_page_{page - 1}"))
-    if end < len(users):
+    if (page + 1) * per_page < total:
         nav.append(InlineKeyboardButton(text="Вперёд ➡", callback_data=f"users_page_{page + 1}"))
     if nav:
         buttons.append(nav)

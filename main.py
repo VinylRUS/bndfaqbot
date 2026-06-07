@@ -119,6 +119,7 @@ async def main() -> None:
     dp.include_router(admin_router)
 
     # 6. Start polling
+    # aiogram automatically injects the Bot instance into handler data["bot"]
     try:
         await dp.start_polling(bot)
     finally:

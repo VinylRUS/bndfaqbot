@@ -17,19 +17,25 @@ def get_main_menu_user() -> ReplyKeyboardMarkup:
 
 
 def get_main_menu_operator() -> ReplyKeyboardMarkup:
+    """Operator sees their ticket buttons + user buttons (FAQ, create ticket, my tickets)."""
     keyboard = [
         [KeyboardButton(text="📥 Новые тикеты")],
-        [KeyboardButton(text="🛠 В работе")],
-        [KeyboardButton(text="📜 История")],
+        [KeyboardButton(text="🛠 В работе"), KeyboardButton(text="📜 История")],
+        [KeyboardButton(text="❓ Создать обращение")],
+        [KeyboardButton(text="📚 FAQ"), KeyboardButton(text="📋 Мои обращения")],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
 def get_main_menu_admin() -> ReplyKeyboardMarkup:
+    """Admin sees admin tools + operator buttons + user buttons."""
     keyboard = [
         [KeyboardButton(text="👥 Пользователи"), KeyboardButton(text="📚 Управление FAQ")],
         [KeyboardButton(text="🤖 Автоответы"), KeyboardButton(text="📊 Статистика")],
-        [KeyboardButton(text="📤 Выгрузка"), KeyboardButton(text="⚙ Настройки")],
+        [KeyboardButton(text="📥 Новые тикеты"), KeyboardButton(text="🛠 В работе")],
+        [KeyboardButton(text="📜 История"), KeyboardButton(text="📤 Выгрузка")],
+        [KeyboardButton(text="❓ Создать обращение"), KeyboardButton(text="⚙ Настройки")],
+        [KeyboardButton(text="📚 FAQ"), KeyboardButton(text="📋 Мои обращения")],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 

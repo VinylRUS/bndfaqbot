@@ -9,6 +9,12 @@ from database.session import async_session_factory
 
 
 class DbSessionMiddleware(BaseMiddleware):
+    """Provides a DB session to every handler via data["db_session"].
+
+    The bot instance is automatically injected by aiogram into data["bot"],
+    so we don't need to handle it here. Handlers access it as data["bot"].
+    """
+
     async def __call__(
         self,
         handler: Callable[[Message | CallbackQuery, Dict[str, Any]], Awaitable[Any]],

@@ -21,11 +21,12 @@ class Category(Base):
         ForeignKey("categories.id"), nullable=True
     )
 
+    # lazy="select" — no auto-cascade
     parent: Mapped[Optional["Category"]] = relationship(
-        remote_side="Category.id", back_populates="children", lazy="selectin"
+        remote_side="Category.id", back_populates="children", lazy="select"
     )
-    children: Mapped[list["Category"]] = relationship(back_populates="parent", lazy="selectin")
-    tickets: Mapped[list["Ticket"]] = relationship(back_populates="category", lazy="selectin")
+    children: Mapped[list["Category"]] = relationship(back_populates="parent", lazy="select")
+    tickets: Mapped[list["Ticket"]] = relationship(back_populates="category", lazy="select")
 
     @property
     def is_topic(self) -> bool:

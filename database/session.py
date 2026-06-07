@@ -22,9 +22,10 @@ def _build_engine() -> AsyncEngine:
     return create_async_engine(
         settings.database_url,
         echo=False,
-        pool_size=20,
-        max_overflow=10,
+        pool_size=5,
+        max_overflow=5,
         pool_pre_ping=True,
+        pool_recycle=300,
     )
 
 
@@ -33,7 +34,7 @@ async_engine: AsyncEngine = _build_engine()
 async_session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
     bind=async_engine,
     class_=AsyncSession,
-    expire_on_commit=False,
+    expire_on_commit=False,  # Prevent MissingGreenlet on lazy loads after commit
 )
 
 
@@ -52,10 +53,9 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
 async def migrate_schema() -> None:
     """Migrate existing FK constraints from users.id to users.telegram_id.
 
-    This is a one-time migration that runs automatically on startup.
-    It drops old FK constraints referencing users.id and creates new ones
-    referencing users.telegram_id, matching how the code actually stores data.
-    Also alters column types from INTEGER to BIGINT for telegram_id values.
+    This is a one-time migration. Call it manually if upgrading from
+    an older schema. It is NO LONGER auto-executed on every startup
+    to avoid unnecessary DDL operations on a live database.
     """
     # Step 1: Drop old FK constraints (must be done before ALTER COLUMN)
     fk_migrations = [
@@ -134,5 +134,3 @@ async def migrate_schema() -> None:
 async def create_tables() -> None:
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    # Migrate FK constraints for existing databases
-    await migrate_schema()

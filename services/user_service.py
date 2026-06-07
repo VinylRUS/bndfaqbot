@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from database.models.role import RoleEnum
 from database.models.user import User
@@ -19,7 +21,8 @@ class UserService:
         self.audit_repo = AuditLogRepository(session)
 
     async def get_by_telegram_id(self, telegram_id: int) -> Optional[User]:
-        return await self.user_repo.get_by_telegram_id(telegram_id)
+        """Get user with role loaded (for permission checks)."""
+        return await self.user_repo.get_by_telegram_id_with_role(telegram_id)
 
     async def get_by_id(self, user_id: int) -> Optional[User]:
         return await self.user_repo.get_by_id(user_id)
@@ -74,8 +77,11 @@ class UserService:
             )
         return user
 
-    async def get_all_users(self) -> list[User]:
-        return await self.user_repo.get_all()
+    async def get_all_users(self, limit: int = 100, offset: int = 0) -> list[User]:
+        return await self.user_repo.get_all(limit=limit, offset=offset)
+
+    async def count_users(self) -> int:
+        return await self.user_repo.count_all()
 
     async def get_operators(self) -> list[User]:
         return await self.user_repo.get_by_role(RoleEnum.OPERATOR)
@@ -83,8 +89,8 @@ class UserService:
     async def get_admins(self) -> list[User]:
         return await self.user_repo.get_by_role(RoleEnum.ADMIN)
 
-    async def count_users(self) -> int:
-        return await self.user_repo.count()
+    async def count_users_by_role(self, role: RoleEnum) -> int:
+        return await self.user_repo.count_by_role(role)
 
     async def ensure_admin(self, telegram_id: int) -> User:
         user = await self.user_repo.get_by_telegram_id(telegram_id)
