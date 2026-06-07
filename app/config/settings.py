@@ -23,12 +23,6 @@ class Settings(BaseSettings):
     db_user: str = "helpdesk"
     db_password: str = "helpdesk_secret"
 
-    # Redis
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-    redis_db: int = 0
-    redis_password: str = ""
-
     # Application
     admin_telegram_ids: str = ""  # comma-separated list of Telegram IDs
     log_level: str = "INFO"
@@ -46,15 +40,6 @@ class Settings(BaseSettings):
             f"postgresql://{self.db_user}:{self.db_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
         )
-
-    @property
-    def redis_url(self) -> str:
-        if self.redis_password:
-            return (
-                f"redis://:{self.redis_password}@{self.redis_host}"
-                f":{self.redis_port}/{self.redis_db}"
-            )
-        return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
     @property
     def admin_ids(self) -> List[int]:

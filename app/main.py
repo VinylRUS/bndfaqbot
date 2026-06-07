@@ -6,7 +6,7 @@ import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
-from aiogram.fsm.storage.redis import RedisStorage
+from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.config.settings import get_settings
 from app.database.session import create_tables
@@ -22,6 +22,7 @@ from app.bot.routers.admin_router import admin_router
 
 
 async def seed_database() -> None:
+    """Create default roles, categories and admin users if they don't exist."""
     async with async_session_factory() as session:
         role_repo = RoleRepository(session)
         for role_name in ["admin", "operator", "user"]:
@@ -39,30 +40,61 @@ async def seed_database() -> None:
         await session.commit()
 
 
+async def wait_for_database(max_retries: int = 10, delay: float = 3.0) -> None:
+    """Wait for PostgreSQL to become available with retries."""
+    from sqlalchemy import text
+    from app.database.session import async_engine
+
+    logger = logging.getLogger(__name__)
+    settings = get_settings()
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with async_engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            logger.info("Database connection OK (%s:%s)", settings.db_host, settings.db_port)
+            return
+        except Exception as e:
+            logger.warning("DB attempt %d/%d failed: %s", attempt, max_retries, e)
+            if attempt < max_retries:
+                await asyncio.sleep(delay)
+            else:
+                raise
+
+
 async def main() -> None:
     settings = get_settings()
 
     logging.basicConfig(
         level=getattr(logging, settings.log_level.upper(), logging.INFO),
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
         stream=sys.stdout,
     )
     logger = logging.getLogger(__name__)
 
-    await create_tables()
-    await seed_database()
-    logger.info("Database tables created and seeded.")
+    logger.info("Starting HelpDesk bot...")
+    logger.info("DB: %s:%s/%s", settings.db_host, settings.db_port, settings.db_name)
 
+    # 1. Wait for database
+    await wait_for_database()
+
+    # 2. Create tables (idempotent — safe to run every time)
+    await create_tables()
+    logger.info("Tables verified.")
+
+    # 3. Seed default data
+    await seed_database()
+    logger.info("Seed data verified.")
+
+    # 4. Init bot
     bot = Bot(
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode="HTML"),
     )
+    storage = MemoryStorage()
 
-    redis_url = settings.redis_url
-    storage = RedisStorage.from_url(redis_url)
-
+    # 5. Setup dispatcher
     dp = Dispatcher(storage=storage)
-
     dp.message.middleware(DbSessionMiddleware())
     dp.callback_query.middleware(DbSessionMiddleware())
     dp.message.middleware(RoleMiddleware())
@@ -72,13 +104,13 @@ async def main() -> None:
     dp.include_router(operator_router)
     dp.include_router(admin_router)
 
-    logger.info("Starting HelpDesk bot...")
+    # 6. Start polling
     try:
         await dp.start_polling(bot)
     finally:
         await bot.session.close()
-        await storage.close()
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+```
