@@ -387,7 +387,7 @@ async def ts_employees_list(callback: CallbackQuery, **kwargs) -> None:
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("ts_emp_") and not F.data.startswith("ts_emptype_") and not F.data.startswith("ts_empwork_") and not F.data.startswith("ts_empname_"))
+@router.callback_query(F.data.startswith("ts_emp_") & ~F.data.startswith("ts_emptype_") & ~F.data.startswith("ts_empwork_") & ~F.data.startswith("ts_empname_"))
 async def ts_employee_detail(callback: CallbackQuery, **kwargs) -> None:
     user_id = int(callback.data.split("_")[-1])
     session: AsyncSession = kwargs["db_session"]

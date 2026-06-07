@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
+from logging.handlers import TimedRotatingFileHandler
+from datetime import datetime
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -120,11 +123,31 @@ async def check_timesheet_reminders(bot: Bot) -> None:
 
 
 async def main() -> None:
-    # Basic logging first so validators can log too
+    # ── Logging setup: console + daily-rotating file ─────────────
+    log_format = "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s"
+    log_dir = os.environ.get("LOG_DIR", "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "bot.log")
+
+    # File handler: rotate every midnight, keep 7 days
+    file_handler = TimedRotatingFileHandler(
+        filename=log_file,
+        when="midnight",
+        interval=1,
+        backupCount=7,
+        encoding="utf-8",
+    )
+    file_handler.suffix = "%Y-%m-%d"
+    file_handler.setFormatter(logging.Formatter(log_format))
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(logging.Formatter(log_format))
+
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-        stream=sys.stdout,
+        format=log_format,
+        handlers=[console_handler, file_handler],
     )
     logger = logging.getLogger(__name__)
 

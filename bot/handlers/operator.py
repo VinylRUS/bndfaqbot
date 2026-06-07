@@ -198,7 +198,7 @@ async def quick_reply_select(callback: CallbackQuery, **kwargs) -> None:
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("quick_") and ~F.data.startswith("quick_reply_") and ~F.data.startswith("quick_add") and ~F.data.startswith("quick_del_") and ~F.data.startswith("save_quick_") and ~F.data.startswith("nosave_quick_"))
+@router.callback_query(F.data.startswith("quick_") & ~F.data.startswith("quick_reply_") & ~F.data.startswith("quick_add") & ~F.data.startswith("quick_del_") & ~F.data.startswith("save_quick_") & ~F.data.startswith("nosave_quick_"))
 async def use_quick_reply(callback: CallbackQuery, state: FSMContext, **kwargs) -> None:
     """Operator selected a quick reply template — send it as the reply."""
     quick_id = int(callback.data.split("_")[1])

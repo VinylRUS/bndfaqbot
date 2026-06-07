@@ -248,7 +248,7 @@ async def admin_faq_list(callback: CallbackQuery, **kwargs) -> None:
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("admin_faq_") and ~F.data.startswith("admin_faq_menu") and ~F.data.startswith("admin_faq_list") and ~F.data.startswith("admin_faq_add") and ~F.data.startswith("admin_faq_edit") and ~F.data.startswith("admin_faq_toggle") and ~F.data.startswith("admin_faq_del"))
+@router.callback_query(F.data.startswith("admin_faq_") & ~F.data.startswith("admin_faq_menu") & ~F.data.startswith("admin_faq_list") & ~F.data.startswith("admin_faq_add") & ~F.data.startswith("admin_faq_edit") & ~F.data.startswith("admin_faq_toggle") & ~F.data.startswith("admin_faq_del"))
 async def admin_faq_detail(callback: CallbackQuery, **kwargs) -> None:
     if not await _check_admin_and_reply(callback, **kwargs):
         return
@@ -481,7 +481,7 @@ async def admin_aa_list(callback: CallbackQuery, **kwargs) -> None:
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("admin_aa_") and ~F.data.startswith("admin_aa_menu") and ~F.data.startswith("admin_aa_list") and ~F.data.startswith("admin_aa_add") and ~F.data.startswith("admin_aa_edit") and ~F.data.startswith("admin_aa_toggle") and ~F.data.startswith("admin_aa_del"))
+@router.callback_query(F.data.startswith("admin_aa_") & ~F.data.startswith("admin_aa_menu") & ~F.data.startswith("admin_aa_list") & ~F.data.startswith("admin_aa_add") & ~F.data.startswith("admin_aa_edit") & ~F.data.startswith("admin_aa_toggle") & ~F.data.startswith("admin_aa_del"))
 async def admin_aa_detail(callback: CallbackQuery, **kwargs) -> None:
     if not await _check_admin_and_reply(callback, **kwargs):
         return
