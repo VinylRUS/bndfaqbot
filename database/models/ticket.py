@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
-from sqlalchemy import String, Text, DateTime, ForeignKey, Enum as SAEnum, Integer
+from sqlalchemy import String, Text, DateTime, ForeignKey, Enum as SAEnum, Integer, BigInteger
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database.models.base import Base
@@ -29,7 +29,9 @@ class Ticket(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     number: Mapped[int] = mapped_column(Integer, unique=True, nullable=False, index=True)
-    author_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    author_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.telegram_id"), nullable=False
+    )
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(
@@ -38,7 +40,7 @@ class Ticket(Base):
         nullable=False,
     )
     operator_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("users.id"), nullable=True
+        BigInteger, ForeignKey("users.telegram_id"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False

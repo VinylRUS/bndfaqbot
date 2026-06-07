@@ -31,13 +31,17 @@ class User(Base):
 
     role: Mapped["Role"] = relationship(back_populates="users", lazy="selectin")
     tickets: Mapped[list["Ticket"]] = relationship(
-        back_populates="author", foreign_keys="[Ticket.author_id]", lazy="selectin"
+        back_populates="author", foreign_keys="Ticket.author_id", lazy="selectin"
     )
     assigned_tickets: Mapped[list["Ticket"]] = relationship(
-        back_populates="operator", foreign_keys="[Ticket.operator_id]", lazy="selectin"
+        back_populates="operator", foreign_keys="Ticket.operator_id", lazy="selectin"
     )
-    ratings_given: Mapped[list["Rating"]] = relationship(back_populates="user", lazy="selectin")
-    audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="user", lazy="selectin")
+    ratings_given: Mapped[list["Rating"]] = relationship(
+        back_populates="user", foreign_keys="Rating.user_id", lazy="selectin"
+    )
+    audit_logs: Mapped[list["AuditLog"]] = relationship(
+        back_populates="user", foreign_keys="AuditLog.user_id", lazy="selectin"
+    )
 
     @property
     def display_name(self) -> str:

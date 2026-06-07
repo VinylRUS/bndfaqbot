@@ -59,7 +59,7 @@ def upgrade() -> None:
         "tickets",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("number", sa.Integer(), nullable=False),
-        sa.Column("author_id", sa.Integer(), nullable=False),
+        sa.Column("author_id", sa.BigInteger(), nullable=False),
         sa.Column("category_id", sa.Integer(), nullable=False),
         sa.Column("text", sa.Text(), nullable=False),
         sa.Column(
@@ -67,12 +67,12 @@ def upgrade() -> None:
             sa.Enum("NEW", "IN_PROGRESS", "ANSWERED", "CLOSED", name="ticket_status_enum", native_enum=True),
             nullable=False,
         ),
-        sa.Column("operator_id", sa.Integer(), nullable=True),
+        sa.Column("operator_id", sa.BigInteger(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("closed_at", sa.DateTime(timezone=True), nullable=True),
-        sa.ForeignKeyConstraint(["author_id"], ["users.id"]),
+        sa.ForeignKeyConstraint(["author_id"], ["users.telegram_id"]),
         sa.ForeignKeyConstraint(["category_id"], ["categories.id"]),
-        sa.ForeignKeyConstraint(["operator_id"], ["users.id"]),
+        sa.ForeignKeyConstraint(["operator_id"], ["users.telegram_id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("number"),
     )
@@ -82,11 +82,11 @@ def upgrade() -> None:
         "ticket_messages",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("ticket_id", sa.Integer(), nullable=False),
-        sa.Column("sender_id", sa.Integer(), nullable=False),
+        sa.Column("sender_id", sa.BigInteger(), nullable=False),
         sa.Column("text", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.ForeignKeyConstraint(["ticket_id"], ["tickets.id"]),
-        sa.ForeignKeyConstraint(["sender_id"], ["users.id"]),
+        sa.ForeignKeyConstraint(["sender_id"], ["users.telegram_id"]),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_ticket_messages_ticket_id", "ticket_messages", ["ticket_id"])
@@ -113,10 +113,10 @@ def upgrade() -> None:
         "ratings",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("ticket_id", sa.Integer(), nullable=False),
-        sa.Column("user_id", sa.Integer(), nullable=False),
+        sa.Column("user_id", sa.BigInteger(), nullable=False),
         sa.Column("score", sa.SmallInteger(), nullable=False),
         sa.ForeignKeyConstraint(["ticket_id"], ["tickets.id"]),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
+        sa.ForeignKeyConstraint(["user_id"], ["users.telegram_id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("ticket_id"),
     )
@@ -124,14 +124,14 @@ def upgrade() -> None:
     op.create_table(
         "audit_logs",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("user_id", sa.Integer(), nullable=True),
+        sa.Column("user_id", sa.BigInteger(), nullable=True),
         sa.Column("role", sa.String(50), nullable=True),
         sa.Column("action", sa.String(255), nullable=False),
         sa.Column("object_type", sa.String(100), nullable=True),
         sa.Column("object_id", sa.Integer(), nullable=True),
         sa.Column("details", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
+        sa.ForeignKeyConstraint(["user_id"], ["users.telegram_id"]),
         sa.PrimaryKeyConstraint("id"),
     )
 

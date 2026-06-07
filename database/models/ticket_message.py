@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Text, DateTime, ForeignKey
+from sqlalchemy import Text, DateTime, ForeignKey, BigInteger
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database.models.base import Base
@@ -18,7 +18,9 @@ class TicketMessage(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     ticket_id: Mapped[int] = mapped_column(ForeignKey("tickets.id"), nullable=False, index=True)
-    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    sender_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.telegram_id"), nullable=False
+    )
     text: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False

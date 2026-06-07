@@ -30,7 +30,19 @@ class RoleMiddleware(BaseMiddleware):
 
         db_user = await user_repo.get_by_telegram_id(from_user.id)
 
-        if db_user and db_user.role:
+        # Auto-register user if they don't exist yet
+        if not db_user:
+            default_role = await role_repo.get_or_create(RoleEnum.USER)
+            db_user = await user_repo.create(
+                telegram_id=from_user.id,
+                role_id=default_role.id,
+                username=from_user.username,
+                first_name=from_user.first_name,
+                last_name=from_user.last_name,
+            )
+            await session.flush()
+
+        if db_user.role:
             role_name = db_user.role.name
             if hasattr(role_name, "value"):
                 data["user_role"] = RoleEnum(role_name.value)

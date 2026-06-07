@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import SmallInteger, ForeignKey
+from sqlalchemy import BigInteger, SmallInteger, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database.models.base import Base
@@ -19,11 +19,15 @@ class Rating(Base):
     ticket_id: Mapped[int] = mapped_column(
         ForeignKey("tickets.id"), unique=True, nullable=False
     )
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.telegram_id"), nullable=False
+    )
     score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
 
     ticket: Mapped["Ticket"] = relationship(back_populates="rating", lazy="selectin")
-    user: Mapped["User"] = relationship(back_populates="ratings_given", lazy="selectin")
+    user: Mapped["User"] = relationship(
+        back_populates="ratings_given", foreign_keys=[user_id], lazy="selectin"
+    )
 
     def __repr__(self) -> str:
         return f"<Rating id={self.id} ticket_id={self.ticket_id} score={self.score}>"
